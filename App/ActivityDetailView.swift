@@ -69,7 +69,13 @@ struct ActivityDetailView: View {
 
     private func addToCalendar() async {
         do {
-            guard try await eventStore.requestWriteOnlyAccessToEvents(), let start = current.startsAt else {
+            let granted = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+                eventStore.requestWriteOnlyAccessToEvents { granted, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume(returning: granted) }
+                }
+            }
+            guard granted, let start = current.startsAt else {
                 model.notice = "Geef toegang tot je agenda via de instellingen van je iPhone."; return
             }
             let event = EKEvent(eventStore: eventStore)
