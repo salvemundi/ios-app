@@ -19,6 +19,7 @@ final class AppModel {
     var isSigningIn = false
     var isSaving = false
     var errorMessage: String?
+    var backendUnavailableMessage: String?
     var notice: String?
     var lastUpdated: Date?
     var isOffline = false
@@ -81,15 +82,16 @@ final class AppModel {
             let loadedActivities: [Activity] = try await api.request("activities")
             guard generation == sessionGeneration else { return }
             activities = loadedActivities
+            backendUnavailableMessage = nil
             LocalCache.save(activities, name: "activities.json")
             isOffline = false
             if signedIn, let token = session?.token {
                 async let loadedProfile: MemberProfile = api.request("me", token: token)
                 async let loadedTickets: [Ticket] = api.request("me/tickets", token: token)
-                async let loadedPreferences: NotificationPreferences = api.request("notification-preferences", token: token)
-                let result = try await (loadedProfile, loadedTickets, loadedPreferences)
+                let result = try await (loadedProfile, loadedTickets)
                 guard generation == sessionGeneration, session?.token == token else { return }
-                profile = result.0; tickets = result.1; preferences = result.2
+                profile = result.0; tickets = result.1
+                Task { await refreshNotificationPreferences(token: token, generation: generation) }
                 LocalCache.save(tickets, name: "tickets.json")
                 LocalCache.save(profile, name: "profile.json")
                 await registerDeviceIfPossible()
@@ -107,6 +109,7 @@ final class AppModel {
         defer { isSigningIn = false }
         do {
             let result = try await login.signIn(server: server, api: api)
+            backendUnavailableMessage = nil
             clearSession()
             try SecureSessionStore.save(result)
             session = result
@@ -193,6 +196,18 @@ final class AppModel {
         } catch { if generation == sessionGeneration { handle(error) }; return false }
     }
 
+    private func refreshNotificationPreferences(token: String, generation: UInt64) async {
+        do {
+            let loaded: NotificationPreferences = try await api.request("notification-preferences", token: token)
+            guard generation == sessionGeneration, session?.token == token else { return }
+            preferences = loaded
+        } catch {
+            guard generation == sessionGeneration, session?.token == token else { return }
+            // Notifications are optional; their storage can be unavailable while core member APIs work.
+            if let problem = error as? APIProblem, ["unauthorized", "session_expired", "invalid_session"].contains(problem.code) { handle(problem) }
+        }
+    }
+
     func savePreferences(_ value: NotificationPreferences) async {
         guard !isDemo else { return }
         guard let token = session?.token else { return }
@@ -202,7 +217,12 @@ final class AppModel {
             let updated: NotificationPreferences = try await api.mutation("notification-preferences", method: "PATCH", token: token, value: value)
             guard generation == sessionGeneration, session?.token == token else { return }
             preferences = updated
-        } catch { if generation == sessionGeneration { preferences = old; handle(error) } }
+        } catch {
+            guard generation == sessionGeneration, session?.token == token else { return }
+            preferences = old
+            if let problem = error as? APIProblem, ["unauthorized", "session_expired", "invalid_session"].contains(problem.code) { handle(problem) }
+            else { errorMessage = "Je meldingsvoorkeuren konden niet worden opgeslagen. Probeer het later opnieuw." }
+        }
     }
 
     func enableNotifications() async {
@@ -240,7 +260,11 @@ final class AppModel {
     }
 
     private func handle(_ error: Error) {
-        if let problem = error as? APIProblem, ["unauthorized", "session_expired", "invalid_session"].contains(problem.code) {
+        if let problem = error as? APIProblem, problem.code == "backend_unavailable" {
+            backendUnavailableMessage = problem.message
+            isOffline = false
+            errorMessage = nil
+        } else if let problem = error as? APIProblem, ["unauthorized", "session_expired", "invalid_session"].contains(problem.code) {
             clearSession(); errorMessage = "Je sessie is verlopen. Log opnieuw in."
         } else if error is URLError {
             isOffline = true

@@ -67,6 +67,7 @@ final class MemberLogin: NSObject, ASWebAuthenticationPresentationContextProvidi
     private let callbackURL = "salvemundi://auth/callback"
 
     func signIn(server: URL, api: APIClient) async throws -> AppSession {
+        try await api.checkAvailability()
         let verifier = try randomString()
         let state = try randomString()
         let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64URLEncoded

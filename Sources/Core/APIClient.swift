@@ -15,6 +15,17 @@ public struct APIClient: Sendable {
         _ path: String, method: String = "GET", token: String? = nil, body: Data? = nil,
         as type: Value.Type = Value.self
     ) async throws -> Value {
+        let data = try await send(path, method: method, token: token, body: body)
+        return try JSONCoding.decoder().decode(APIEnvelope<Value>.self, from: data).data
+    }
+
+    /// Verify the mobile service is enabled before opening the Microsoft authentication browser.
+    /// Next.js supplies HEAD for its GET route, so no activities payload needs to be downloaded.
+    public func checkAvailability() async throws {
+        _ = try await send("activities", method: "HEAD")
+    }
+
+    private func send(_ path: String, method: String, token: String? = nil, body: Data? = nil) async throws -> Data {
         guard baseURL.scheme == "https", var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
             throw APIProblem(code: "invalid_server", message: "De serverinstelling is ongeldig.")
         }
@@ -30,10 +41,18 @@ public struct APIClient: Sendable {
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         guard (200..<300).contains(response.statusCode) else {
-            if let failure = try? JSONCoding.decoder().decode(FailureEnvelope.self, from: data) { throw failure.error }
-            throw APIProblem(code: response.statusCode == 401 ? "unauthorized" : "server_error", message: response.statusCode == 401 ? "Log opnieuw in om verder te gaan." : "De server is tijdelijk niet bereikbaar. Probeer het later opnieuw.")
+            let serviceEndpoints: Set<String> = ["activities", "auth/start", "auth/exchange", "me", "me/tickets", "notification-preferences", "devices"]
+            if response.statusCode == 404, serviceEndpoints.contains(path) {
+                throw APIProblem(code: "backend_unavailable", message: "De appverbinding met de acceptatieomgeving is nog niet actief. Probeer het over een paar minuten opnieuw.")
+            }
+            let failure = try? JSONCoding.decoder().decode(FailureEnvelope.self, from: data)
+            if response.statusCode == 401 {
+                throw APIProblem(code: "unauthorized", message: failure?.error.message ?? "Log opnieuw in om verder te gaan.")
+            }
+            if let failure { throw failure.error }
+            throw APIProblem(code: "server_error", message: "De server is tijdelijk niet bereikbaar. Probeer het later opnieuw.")
         }
-        return try JSONCoding.decoder().decode(APIEnvelope<Value>.self, from: data).data
+        return data
     }
 
     public func mutation<Input: Encodable & Sendable, Output: Decodable & Sendable>(

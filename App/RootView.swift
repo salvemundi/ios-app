@@ -22,6 +22,25 @@ struct RootView: View {
             if model.isDemo {
                 Text("DEMONSTRATIE · GEEN ECHTE GEGEVENS").font(.caption2.bold()).frame(maxWidth: .infinity).padding(8).background(Brand.gold).foregroundStyle(Brand.deepPurple)
             }
+            if let message = model.backendUnavailableMessage {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Appverbinding nog niet actief", systemImage: "antenna.radiowaves.left.and.right.slash").font(.subheadline.bold())
+                    Text(message).font(.caption)
+                    Button { Task { await model.refresh() } } label: {
+                        HStack(spacing: 6) {
+                            if model.isLoading { ProgressView().controlSize(.small) }
+                            Text("Opnieuw proberen")
+                        }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .disabled(model.isLoading || model.isSigningIn)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .foregroundStyle(Brand.deepPurple)
+                .background(Brand.gold.opacity(0.95))
+                .accessibilityElement(children: .contain)
+            }
             if model.isOffline {
                 HStack(spacing: 8) { Image(systemName: "wifi.slash"); Text("Offline · eerder geladen gegevens") }.font(.caption).frame(maxWidth: .infinity).padding(8).background(Brand.gold).foregroundStyle(Brand.deepPurple)
             }
@@ -69,6 +88,7 @@ struct HomeView: View {
                 VStack(spacing: 16) {
                     HStack { SectionHeading(title: "Binnenkort"); Button("Alles") { model.selectedTab = .activities }.font(.subheadline.weight(.semibold)) }
                     if model.isLoading && model.activities.isEmpty { ProgressView().padding(30) }
+                    else if model.backendUnavailableMessage != nil && model.activities.isEmpty { EmptyState(icon: "calendar.badge.exclamationmark", title: "Agenda tijdelijk niet beschikbaar", message: "Je kunt opnieuw laden zodra de appverbinding actief is.") }
                     else if model.upcoming.isEmpty { EmptyState(icon: "calendar.badge.clock", title: "Even rustig op de agenda", message: "Nieuwe activiteiten verschijnen hier zodra ze bekend zijn.") }
                     else { ForEach(model.upcoming.prefix(3)) { activity in Button { model.selectedActivity = activity } label: { ActivityCard(activity: activity, featured: true) }.buttonStyle(.plain) } }
                 }
@@ -99,6 +119,7 @@ struct ActivitiesView: View {
             VStack(spacing: 18) {
                 Picker("Periode", selection: $upcomingOnly) { Text("Binnenkort").tag(true); Text("Alle activiteiten").tag(false) }.pickerStyle(.segmented)
                 if model.isLoading && model.activities.isEmpty { ProgressView().padding(40) }
+                else if model.backendUnavailableMessage != nil && model.activities.isEmpty { EmptyState(icon: "calendar.badge.exclamationmark", title: "Agenda tijdelijk niet beschikbaar", message: "Je kunt opnieuw laden zodra de appverbinding actief is.") }
                 else if visible.isEmpty { EmptyState(icon: "magnifyingglass", title: search.isEmpty ? "Nog geen activiteiten" : "Niets gevonden", message: "Probeer later opnieuw of pas je zoekopdracht aan.") }
                 else { ForEach(visible) { activity in Button { model.selectedActivity = activity } label: { ActivityCard(activity: activity) }.buttonStyle(.plain) } }
             }.padding(20)

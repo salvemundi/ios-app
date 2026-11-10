@@ -60,8 +60,20 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         guard let url = request.url else { return }
         let unauthorized = request.value(forHTTPHeaderField: "Authorization") == "Bearer expired"
-        let json = unauthorized ? "{\"error\":{\"code\":\"unauthorized\",\"message\":\"Log opnieuw in.\"}}" : "{\"data\":{\"success\":true}}"
-        let response = HTTPURLResponse(url: url, statusCode: unauthorized ? 401 : 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+        let unavailable = url.host == "disabled.example.invalid"
+        let missingActivity = url.path == "/api/mobile/v1/activities/event:404"
+        let status = unauthorized ? 401 : unavailable || missingActivity ? 404 : 200
+        let json: String
+        if request.httpMethod == "HEAD" {
+            json = "" // HEAD must not depend on JSON response bodies.
+        } else if unauthorized {
+            json = "{\"error\":{\"code\":\"unauthorized\",\"message\":\"Log opnieuw in.\"}}"
+        } else if unavailable || missingActivity {
+            json = "{\"error\":{\"code\":\"not_found\",\"message\":\"Niet gevonden.\"}}"
+        } else {
+            json = "{\"data\":{\"success\":true}}"
+        }
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(json.utf8))
         client?.urlProtocolDidFinishLoading(self)
@@ -70,10 +82,10 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 struct APIClientTests {
-    private func client(scheme: String = "https") -> APIClient {
+    private func client(scheme: String = "https", host: String = "acc.salvemundi.nl") -> APIClient {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubURLProtocol.self]
-        return APIClient(baseURL: URL(string: "\(scheme)://acc.salvemundi.nl")!, session: URLSession(configuration: config))
+        return APIClient(baseURL: URL(string: "\(scheme)://\(host)")!, session: URLSession(configuration: config))
     }
     @Test func decodesUnauthorizedProblem() async throws {
         do {
@@ -91,4 +103,32 @@ struct APIClientTests {
         let response: MutationAcknowledgement = try await client().mutation("activities/event:123/registrations", token: "valid", value: EmptyPayload())
         #expect(response.success)
     }
+    @Test func unavailableCollectionHasHelpfulConnectionError() async throws {
+        do {
+            let _: [Activity] = try await client(host: "disabled.example.invalid").request("activities")
+            Issue.record("A disabled collection endpoint must explain backend availability")
+        } catch let problem as APIProblem {
+            #expect(problem.code == "backend_unavailable")
+            #expect(problem.message.contains("acceptatieomgeving"))
+        }
+    }
+    @Test func availabilityPreflightRecognizesBodyless404() async throws {
+        do {
+            try await client(host: "disabled.example.invalid").checkAvailability()
+            Issue.record("The authentication browser must not open for a disabled API")
+        } catch let problem as APIProblem { #expect(problem.code == "backend_unavailable") }
+    }
+    @Test func availabilityPreflightAcceptsBodylessSuccess() async throws {
+        try await client().checkAvailability()
+    }
+    @Test func missingActivityRetainsNotFound() async throws {
+        do {
+            let _: Activity = try await client().request("activities/event:404")
+            Issue.record("A missing activity should fail")
+        } catch let problem as APIProblem {
+            #expect(problem.code == "not_found")
+            #expect(problem.message == "Niet gevonden.")
+        }
+    }
+
 }
