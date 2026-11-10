@@ -29,8 +29,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         Task {
-            let settings = await UNUserNotificationCenter.current().notificationSettings()
-            if AppModel.shared.signedIn, settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional { application.registerForRemoteNotifications() }
+            if AppModel.shared.signedIn, await NotificationAuthorization.isAllowed() { application.registerForRemoteNotifications() }
         }
         return true
     }

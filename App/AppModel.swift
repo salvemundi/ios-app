@@ -110,8 +110,7 @@ final class AppModel {
             clearSession()
             try SecureSessionStore.save(result)
             session = result
-            let settings = await UNUserNotificationCenter.current().notificationSettings()
-            if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional { UIApplication.shared.registerForRemoteNotifications() }
+            if await NotificationAuthorization.isAllowed() { UIApplication.shared.registerForRemoteNotifications() }
             await refresh()
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin { }
         catch { handle(error) }

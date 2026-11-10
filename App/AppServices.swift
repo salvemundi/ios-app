@@ -3,6 +3,7 @@ import CryptoKit
 import Foundation
 import Security
 import UIKit
+import UserNotifications
 
 struct PendingRevocation: Codable {
     let token: String
@@ -127,5 +128,17 @@ enum LocalCache {
     }
     static func clearPrivate() {
         for name in ["tickets.json", "profile.json", "updated.json"] { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
+    }
+}
+
+// Transfer only a Sendable Bool across the notification callback boundary.
+// Older supported Apple SDKs do not mark UNNotificationSettings as Sendable.
+enum NotificationAuthorization {
+    static func isAllowed() async -> Bool {
+        await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().getNotificationSettings { settings in
+                continuation.resume(returning: settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)
+            }
+        }
     }
 }
