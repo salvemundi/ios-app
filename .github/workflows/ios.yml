@@ -1,0 +1,22 @@
+name: iPhone app
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shared model and networking tests
+        run: swift test
+      - name: Build app and widgets without signing
+        run: >-
+          xcodebuild -project SalveMundi.xcodeproj -scheme SalveMundi
+          -configuration Debug -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build CODE_SIGNING_ALLOWED=NO build

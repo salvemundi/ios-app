@@ -1,0 +1,84 @@
+import SwiftUI
+
+extension Color {
+    init(hex: UInt32) { self.init(.sRGB, red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1) }
+}
+
+enum Brand {
+    static let purple = Color(hex: 0x65406F)
+    static let deepPurple = Color(hex: 0x33213D)
+    static let gold = Color(hex: 0xF4D466)
+    static let background = Color(uiColor: .systemGroupedBackground)
+    static let card = Color(uiColor: .secondarySystemGroupedBackground)
+}
+
+struct PrimaryButtonStyle: ButtonStyle {
+    var gold = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.headline)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(gold ? Brand.gold : Brand.purple, in: RoundedRectangle(cornerRadius: 18))
+            .foregroundStyle(gold ? Brand.deepPurple : .white)
+            .opacity(configuration.isPressed ? 0.75 : 1)
+    }
+}
+
+struct SectionHeading: View {
+    let title: String
+    var body: some View { Text(title).font(.title2.bold()).foregroundStyle(.primary).frame(maxWidth: .infinity, alignment: .leading) }
+}
+
+struct EmptyState: View {
+    let icon: String
+    let title: String
+    let message: String
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: icon).font(.system(size: 40, weight: .light)).foregroundStyle(Brand.purple)
+            Text(title).font(.title3.bold())
+            Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity).padding(32)
+        .background(Brand.card, in: RoundedRectangle(cornerRadius: 24))
+    }
+}
+
+struct ActivityCard: View {
+    let activity: Activity
+    var featured = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .bottomLeading) {
+                LinearGradient(colors: [Brand.purple, Brand.deepPurple], startPoint: .topLeading, endPoint: .bottomTrailing)
+                if let url = activity.imageURL {
+                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                    LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
+                } else {
+                    Image(systemName: activity.kind == "pub_crawl" ? "sparkles" : "calendar")
+                        .font(.system(size: 85, weight: .ultraLight)).rotationEffect(.degrees(-12))
+                        .foregroundStyle(.white.opacity(0.12)).frame(maxWidth: .infinity, alignment: .trailing).padding(20)
+                }
+                HStack {
+                    if let date = activity.startsAt { Text(date.formatted(.dateTime.day().month(.abbreviated)).uppercased()).font(.caption.bold()).padding(.horizontal, 12).padding(.vertical, 8).background(.ultraThinMaterial, in: Capsule()) }
+                    Spacer()
+                    Text(activity.price).font(.caption.bold()).padding(.horizontal, 12).padding(.vertical, 8).background(Brand.gold, in: Capsule()).foregroundStyle(Brand.deepPurple)
+                }.padding(16)
+            }
+            .frame(height: featured ? 185 : 145).clipped()
+            VStack(alignment: .leading, spacing: 10) {
+                Text(activity.title).font(featured ? .title3.bold() : .headline).foregroundStyle(.primary).lineLimit(2)
+                HStack(spacing: 12) {
+                    if let date = activity.startsAt { Label(date.formatted(.dateTime.hour().minute()), systemImage: "clock") }
+                    if let location = activity.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").lineLimit(1) }
+                }.font(.caption).foregroundStyle(.secondary)
+                if activity.membersOnly { Label("Voor leden", systemImage: "person.crop.circle.badge.checkmark").font(.caption.weight(.medium)).foregroundStyle(Brand.purple) }
+            }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Brand.card, in: RoundedRectangle(cornerRadius: 24))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .overlay(RoundedRectangle(cornerRadius: 24).stroke(.primary.opacity(0.04), lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 24))
+    }
+}
