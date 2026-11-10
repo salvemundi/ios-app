@@ -10,6 +10,9 @@ struct RootView: View {
             Tab("Tickets", systemImage: "qrcode", value: .tickets) { NavigationStack { TicketsView() } }
             Tab("Profiel", systemImage: "person.crop.circle", value: .profile) { NavigationStack { ProfileView() } }
         }
+        .sheet(item: $model.adminPresentation) { presentation in
+            ActivityAdminRootView(initialActivityID: presentation.activityID)
+        }
         .sheet(item: $model.selectedActivity) { activity in NavigationStack { ActivityDetailView(activity: activity) } }
         .sheet(item: $model.selectedTicket) { ticket in NavigationStack { TicketDetailView(ticket: ticket) } }
         .alert("Er ging iets mis", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {

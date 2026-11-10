@@ -2,7 +2,7 @@
 
 Native SwiftUI member app for Salve Mundi. This is an independent repository; the website remains in [salvemundi/website](https://github.com/salvemundi/website).
 
-The first release includes activities and registration, Mollie checkout, existing QR tickets, membership/profile, event notifications and two Home Screen widgets. The interface is Dutch, with Salve Mundi branding, dark mode and accessibility support. iOS 18 or later is required.
+The first release includes activities and registration, Mollie checkout, existing QR tickets, membership/profile, event notifications and three Home Screen widgets. The interface is Dutch, with Salve Mundi branding, dark mode and accessibility support. iOS 18 or later is required.
 
 ## Run locally
 
@@ -18,6 +18,8 @@ The shared models and API client can be tested without a simulator:
 ```sh
 swift test
 ```
+
+Activity administrators can manage their authorized events from Profile. The new **Aanmeldingen activiteiten** widget shows authorized registration counts. See [activity administration](docs/activity-admin.md) and [next steps](docs/next-steps.md).
 
 ## Repository contents
 

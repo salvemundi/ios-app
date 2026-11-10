@@ -29,6 +29,15 @@ final class AppModel {
     var registrationInProgress: String?
     var checkoutURL: URL?
     var isDemo = false
+    var adminAccess: ActivityAdminAccess?
+    var adminCollection: AdminActivityCollection?
+    var adminAccessLoading = false
+    var adminRevision: UInt64 = 0
+    private var adminAccessRequest: UInt64 = 0
+    var adminPresentation: ActivityAdminPresentation?
+    var adminMessage: String?
+    private var adminExportURLs: Set<URL> = []
+    var canAdminActivities: Bool { signedIn && adminAccess?.canAccess == true }
     private var deviceToken: String?
     private let login = MemberLogin()
     private var sessionGeneration: UInt64 = 0
@@ -70,6 +79,7 @@ final class AppModel {
         if session?.isExpired == true { clearSession() }
         isLoading = true
         Task { await retryPendingRevocations() }
+        if signedIn { Task { await refreshActivityAdminAccess() } }
         let generation = sessionGeneration
         defer {
             isLoading = false
@@ -153,6 +163,8 @@ final class AppModel {
 
     private func clearSession() {
         sessionGeneration &+= 1
+        clearActivityAdminState()
+        adminPresentation = nil
         SecureSessionStore.clear(); LocalCache.clearPrivate()
         session = nil; profile = nil; tickets = []; selectedTicket = nil; checkoutURL = nil
         preferences = NotificationPreferences()
@@ -245,6 +257,7 @@ final class AppModel {
     func open(_ url: URL) async {
         guard let link = DeepLink(url: url) else { return }
         switch link {
+        case .adminActivities(let id): await openActivityAdministration(activityID: id)
         case .activities: selectedTab = .activities
         case .activity(let id):
             selectedTab = .activities
@@ -258,6 +271,130 @@ final class AppModel {
         case .tickets, .paymentReturn: selectedTab = .tickets; checkoutURL = nil; await refresh()
         }
     }
+
+    // Administration is memory-only; actual scope changes invalidate private screen state.
+    @discardableResult
+    func refreshActivityAdminAccess() async -> Bool {
+        guard signedIn, !isDemo, let token = session?.token else { clearActivityAdminState(); return false }
+        adminAccessRequest &+= 1
+        let request = adminAccessRequest
+        let generation = sessionGeneration
+        let previous = adminAccess
+        adminAccessLoading = true
+        defer { if request == adminAccessRequest { adminAccessLoading = false } }
+        do {
+            let access: ActivityAdminAccess = try await api.request("admin/activities/access", token: token)
+            guard generation == sessionGeneration, request == adminAccessRequest, token == session?.token else { return false }
+            if !access.canAccess {
+                clearActivityAdminState()
+                adminMessage = "Je hebt geen toegang tot activiteitenbeheer."
+                return false
+            }
+            if let previous, previous.scopeVersion != access.scopeVersion || previous.canCreate != access.canCreate {
+                clearActivityAdminState()
+            }
+            adminAccess = access
+            adminMessage = nil
+            let revision = adminRevision
+            Task { await refreshAdminWidgetAccess(token: token, generation: generation, revision: revision) }
+            return true
+        } catch {
+            guard generation == sessionGeneration, request == adminAccessRequest else { return false }
+            if let problem = error as? APIProblem, problem.code == "unauthorized" { handle(problem) }
+            else { clearActivityAdminState(); adminMessage = "Activiteitenbeheer is niet beschikbaar of je hebt geen toegang." }
+        }
+        return false
+    }
+
+    func openActivityAdministration(activityID: String? = nil) async {
+        if !signedIn { await signIn() }
+        guard signedIn else { return }
+        selectedActivity = nil; selectedTicket = nil; checkoutURL = nil
+        _ = await refreshActivityAdminAccess()
+        guard signedIn else { return }
+        selectedTab = .profile
+        adminPresentation = ActivityAdminPresentation(activityID: activityID)
+    }
+
+    private func clearActivityAdminState() {
+        adminRevision &+= 1
+        adminAccessRequest &+= 1
+        adminAccess = nil; adminCollection = nil; adminMessage = nil; adminAccessLoading = false
+        for url in adminExportURLs { try? FileManager.default.removeItem(at: url) }
+        adminExportURLs.removeAll()
+        AdminWidgetCredentialStore.clear()
+        AdminWidgetSnapshotStore.clear()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    private func refreshAdminWidgetAccess(token: String, generation: UInt64, revision: UInt64) async {
+        do {
+            let credential: AdminWidgetCredential = try await api.mutation("admin/widget-session", token: token, value: EmptyPayload())
+            let summary: AdminWidgetSummary = try await api.request("admin/widget-activities", token: token)
+            guard generation == sessionGeneration, revision == adminRevision, session?.token == token, canAdminActivities else { return }
+            try AdminWidgetCredentialStore.save(credential)
+            AdminWidgetSnapshotStore.save(summary)
+            WidgetCenter.shared.reloadAllTimelines()
+        } catch {
+            guard generation == sessionGeneration, revision == adminRevision else { return }
+            if let problem = error as? APIProblem, problem.code == "unauthorized" { handle(problem) }
+            else if let problem = error as? APIProblem, problem.code == "forbidden" { clearActivityAdminState() }
+            // Widgets are optional. Never block normal administration on widget provisioning.
+        }
+    }
+
+    func adminRequest<Value: Decodable & Sendable>(_ path: String, method: String = "GET", body: Data? = nil, query: [URLQueryItem] = [], as type: Value.Type = Value.self) async throws -> Value {
+        guard canAdminActivities, let token = session?.token else { throw CancellationError() }
+        let generation = sessionGeneration, revision = adminRevision
+        do {
+            let value: Value = try await api.request(path, method: method, token: token, body: body, query: query)
+            guard generation == sessionGeneration, revision == adminRevision, session?.token == token, canAdminActivities else { throw CancellationError() }
+            return value
+        } catch {
+            guard generation == sessionGeneration, revision == adminRevision else { throw CancellationError() }
+            if let problem = error as? APIProblem, problem.code == "unauthorized" { handle(problem) }
+            else if let problem = error as? APIProblem, problem.code == "forbidden" { clearActivityAdminState(); adminMessage = problem.message }
+            else if let problem = error as? APIProblem, problem.code == "not_found", !path.hasSuffix("/scan") { clearActivityAdminState(); adminMessage = "Deze activiteit is niet meer beschikbaar of je hebt geen toegang." }
+            else if error is URLError { clearActivityAdminState(); adminMessage = "Activiteitenbeheer is alleen beschikbaar met een internetverbinding." }
+            throw error
+        }
+    }
+
+    func adminMutation<Input: Encodable & Sendable, Output: Decodable & Sendable>(_ path: String, method: String = "POST", value: Input, as type: Output.Type = Output.self) async throws -> Output {
+        try await adminRequest(path, method: method, body: JSONCoding.encoder().encode(value))
+    }
+
+    @discardableResult
+    func loadAdminActivities() async throws -> AdminActivityCollection {
+        adminCollection = nil
+        let value: AdminActivityCollection = try await adminRequest("admin/activities")
+        adminCollection = value
+        return value
+    }
+
+    func uploadAdminImage(activityID: String, data: Data, mimeType: String = "image/jpeg", filename: String = "activity.jpg") async throws -> AdminActivityDetail {
+        guard canAdminActivities, let token = session?.token else { throw CancellationError() }
+        let generation = sessionGeneration, revision = adminRevision
+        do {
+            let detail: AdminActivityDetail = try await api.upload("admin/activities/\(activityID)/image", image: data, token: token, mimeType: mimeType, filename: filename)
+            guard generation == sessionGeneration, revision == adminRevision, session?.token == token, canAdminActivities else { throw CancellationError() }
+            return detail
+        } catch {
+            guard generation == sessionGeneration, revision == adminRevision else { throw CancellationError() }
+            if let problem = error as? APIProblem, problem.code == "unauthorized" { handle(problem) }
+            else if let problem = error as? APIProblem, problem.code == "forbidden" { clearActivityAdminState(); adminMessage = problem.message }
+            throw error
+        }
+    }
+
+    func recordAdminExport(_ data: Data, extension suffix: String) throws -> URL {
+        guard canAdminActivities else { throw CancellationError() }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Salve-Mundi-deelnemers-\(UUID().uuidString).\(suffix)")
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        adminExportURLs.insert(url)
+        return url
+    }
+    func removeAdminExport(_ url: URL) { try? FileManager.default.removeItem(at: url); adminExportURLs.remove(url) }
 
     private func handle(_ error: Error) {
         if let problem = error as? APIProblem, problem.code == "backend_unavailable" {
@@ -285,3 +422,5 @@ final class AppModel {
 }
 
 enum AppTab: Hashable { case home, activities, tickets, profile }
+
+struct ActivityAdminPresentation: Identifiable { let id = UUID(); let activityID: String? }

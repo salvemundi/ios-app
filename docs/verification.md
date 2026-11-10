@@ -17,3 +17,9 @@ The test server used no real database, Microsoft or Apple credentials. No produc
 Still required before a member pilot: live Microsoft sign-in and revocation, acceptance-database verification/migration, paid/free bookings and interrupted Mollie checkout, real scanner compatibility, APNs on signed devices, widget placement/update behavior and accessibility/device testing. An unresolved payment-creation timeout returns a pending error and preserves the booking to avoid a duplicate charge; verify eventual payment recovery with the acceptance finance service before enabling the pilot.
 
 Apple signing, TestFlight upload and App Store submission are not completed by an unsigned local build. Follow [release setup](release.md).
+
+## Activiteitenbeheer en widgetuitbreiding
+
+De uitbreiding is gecontroleerd met 23 Swift-tests, 15 daadwerkelijke-broncode-tests voor beheertoegang/mutaties/widgetrechten en unsigned Debug/Release-builds van app en widgets. Backendtests gebruiken een tijdelijke SQLite-database en vervangers voor externe services; geen echte deelnemers, betalingen of e-mails worden aangemaakt. Negatieve tests controleren vreemde activiteit-/deelnemer-ID’s, commissie- en leidersrechten, ingetrokken widgettoegang, onbetaalde tickets, rollback en ontvangers uit de serverdatabase.
+
+Fysieke camera/QR-scans, gedeelde Keychain met echte provisioning, actuele iOS-widgetplanning en een goedgekeurde testmail vragen nog om een controle op het toestel.

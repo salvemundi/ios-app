@@ -18,6 +18,11 @@ struct ProfileView: View {
                         }.frame(maxWidth: .infinity).padding(.vertical, 16)
                         Button { editing = true } label: { Label("Mijn gegevens wijzigen", systemImage: "pencil") }
                     }
+                    if model.canAdminActivities {
+                        Section("Beheer") {
+                            Button { Task { await model.openActivityAdministration() } } label: { Label("Activiteiten beheren", systemImage: "calendar.badge.gearshape") }
+                        }
+                    }
                     Section("Meldingen") {
                         Button { Task { await model.enableNotifications() } } label: { Label("Meldingen op deze iPhone inschakelen", systemImage: "bell.badge") }
                         preference("Inschrijvingen", keyPath: \.registrations)

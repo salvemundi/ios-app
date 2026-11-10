@@ -97,7 +97,99 @@ struct NextBookedEventWidget: Widget {
     }
 }
 
+private struct AdminCountsEntry: TimelineEntry {
+    let date: Date
+    let summary: AdminWidgetSummary?
+}
+
+// WidgetKit's legacy callback is not annotated Sendable. Transfer the immutable
+// callback to one task and invoke it exactly once; it is never used by the caller again.
+private struct AdminTimelineCompletion: @unchecked Sendable {
+    let complete: (Timeline<AdminCountsEntry>) -> Void
+}
+
+private struct AdminCountsProvider: TimelineProvider {
+    func placeholder(in context: Context) -> AdminCountsEntry { .init(date: .now, summary: nil) }
+    func getSnapshot(in context: Context, completion: @escaping (AdminCountsEntry) -> Void) {
+        // Gallery previews never reveal committee information.
+        completion(.init(date: .now, summary: context.isPreview ? nil : AdminWidgetSnapshotStore.read()))
+    }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<AdminCountsEntry>) -> Void) {
+        let callback = AdminTimelineCompletion(complete: completion)
+        Task {
+            let summary = await AdminWidgetRefresh.fetch()
+            let now = Date.now
+            var entries = [AdminCountsEntry(date: now, summary: summary)]
+            if let summary, summary.isFresh(at: now) {
+                // Redact at a fixed deadline even if iOS postpones the next network refresh.
+                entries.append(AdminCountsEntry(date: summary.displayDeadline, summary: nil))
+            }
+            callback.complete(Timeline(entries: entries, policy: .after(now.addingTimeInterval(15 * 60))))
+        }
+    }
+}
+
+private struct AdminCountsView: View {
+    let entry: AdminCountsEntry
+    @Environment(\.widgetFamily) private var family
+    private var summary: AdminWidgetSummary? {
+        guard let summary = entry.summary, summary.isFresh(at: entry.date) else { return nil }
+        return summary
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("AANMELDINGEN", systemImage: "person.2.fill").font(.caption2.bold())
+                Spacer(minLength: 0)
+                Image(systemName: "lock.fill").font(.caption2)
+            }.foregroundStyle(Color(red: 0.95, green: 0.83, blue: 0.4))
+            if let summary, !summary.items.isEmpty {
+                ForEach(summary.items.prefix(family == .systemMedium ? 2 : 1)) { activity in
+                    HStack(alignment: .top, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(activity.title).font(family == .systemMedium ? .caption.weight(.semibold) : .headline).lineLimit(family == .systemMedium ? 1 : 2)
+                            if family == .systemSmall, let date = activity.startsAt {
+                                Text(date.formatted(.dateTime.day().month(.abbreviated))).font(.caption2).opacity(0.8)
+                            }
+                            if activity.pendingCount > 0 {
+                                Text("\(activity.pendingCount) wacht op betaling").font(.caption2).opacity(0.8)
+                            }
+                            Text("\(activity.checkedInCount) ingecheckt").font(.caption2).opacity(0.8)
+                        }
+                        Spacer(minLength: 0)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(activity.capacity.map { "\(activity.confirmedCount)/\($0)" } ?? "\(activity.confirmedCount)")
+                                .font(family == .systemMedium ? .headline.monospacedDigit() : .title2.bold().monospacedDigit())
+                            Text("bevestigd").font(.caption2).opacity(0.8)
+                        }
+                    }.privacySensitive()
+                }
+                Spacer(minLength: 0)
+                Text("Bijgewerkt \(summary.fetchedAt.formatted(.dateTime.hour().minute()))").font(.caption2).opacity(0.65)
+            } else {
+                Spacer(minLength: 0)
+                Text(summary == nil ? "Open de app" : "Geen activiteiten").font(.headline)
+                Text(summary == nil ? "Log in of vernieuw je beheerrechten." : "Je toegankelijke activiteiten verschijnen hier.").font(.caption).opacity(0.8)
+                Spacer(minLength: 0)
+            }
+        }
+        .foregroundStyle(.white)
+        .containerBackground(Color(red: 0.20, green: 0.13, blue: 0.24), for: .widget)
+        .widgetURL(family == .systemSmall ? summary?.items.first?.deepLink ?? URL(string: "salvemundi://admin/activities") : URL(string: "salvemundi://admin/activities"))
+    }
+}
+
+struct AdminActivitySignupsWidget: Widget {
+    let kind = "AdminActivitySignups"
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: AdminCountsProvider()) { AdminCountsView(entry: $0) }
+            .configurationDisplayName("Activiteiten: aanmeldingen")
+            .description("Bevestigde aanmeldingen voor activiteiten die je mag beheren. Geen deelnemersgegevens.")
+            .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+
 @main
 struct SalveMundiWidgets: WidgetBundle {
-    var body: some Widget { UpcomingActivitiesWidget(); NextBookedEventWidget() }
+    var body: some Widget { UpcomingActivitiesWidget(); NextBookedEventWidget(); AdminActivitySignupsWidget() }
 }
