@@ -4,6 +4,12 @@ import WebKit
 
 struct TicketsView: View {
     @Environment(AppModel.self) private var model
+    private var upcomingTickets: [Ticket] {
+        model.tickets.filter { !model.ticketIsPast($0) }.sorted { ($0.startsAt ?? .distantFuture) < ($1.startsAt ?? .distantFuture) }
+    }
+    private var pastTickets: [Ticket] {
+        model.tickets.filter { model.ticketIsPast($0) }.sorted { ($0.startsAt ?? .distantPast) > ($1.startsAt ?? .distantPast) }
+    }
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
@@ -16,8 +22,17 @@ struct TicketsView: View {
                     Button("Ontdek activiteiten") { model.selectedTab = .activities }.buttonStyle(PrimaryButtonStyle())
                 } else {
                     Text("Je tickets, altijd bij de hand.").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                    ForEach(model.tickets.sorted { ($0.startsAt ?? .distantPast) > ($1.startsAt ?? .distantPast) }) { ticket in
-                        Button { model.selectedTicket = ticket } label: { TicketRow(ticket: ticket) }.buttonStyle(.plain)
+                    if !upcomingTickets.isEmpty {
+                        SectionHeading(title: "Komend en bezig")
+                        ForEach(upcomingTickets) { ticket in
+                            Button { model.selectedTicket = ticket } label: { TicketRow(ticket: ticket, past: false) }.buttonStyle(.plain)
+                        }
+                    }
+                    if !pastTickets.isEmpty {
+                        SectionHeading(title: "Afgelopen activiteiten")
+                        ForEach(pastTickets) { ticket in
+                            Button { model.selectedTicket = ticket } label: { TicketRow(ticket: ticket, past: true) }.buttonStyle(.plain)
+                        }
                     }
                     if model.isOffline { Text("Een offline ticket kan sinds je laatste verbinding gewijzigd zijn. De scanner controleert je actuele toegang.").font(.caption).foregroundStyle(.secondary) }
                 }
@@ -28,16 +43,18 @@ struct TicketsView: View {
 
 private struct TicketRow: View {
     let ticket: Ticket
+    let past: Bool
     var body: some View {
         HStack(spacing: 16) {
             ZStack { RoundedRectangle(cornerRadius: 16).fill(Brand.purple.opacity(0.1)); Image(systemName: ticket.isValid ? "qrcode" : "ticket").font(.title).foregroundStyle(Brand.purple) }.frame(width: 64, height: 72)
             VStack(alignment: .leading, spacing: 6) {
+                if past { Label("Afgelopen", systemImage: "clock.arrow.circlepath").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                 Text(ticket.title).font(.headline).foregroundStyle(.primary)
                 if let date = ticket.startsAt { Text(date.formatted(.dateTime.day().month(.abbreviated).hour().minute())).font(.caption).foregroundStyle(.secondary) }
                 Label(ticket.statusLabel, systemImage: ticket.isValid ? "checkmark.circle.fill" : "clock").font(.caption.weight(.medium)).foregroundStyle(ticket.isValid ? .green : .secondary)
             }
             Spacer(minLength: 0); Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
-        }.padding(18).background(Brand.card, in: RoundedRectangle(cornerRadius: 24))
+        }.padding(18).background(Brand.card, in: RoundedRectangle(cornerRadius: 24)).saturation(past ? 0 : 1)
     }
 }
 
@@ -51,6 +68,7 @@ struct TicketDetailView: View {
             VStack(spacing: 24) {
                 VStack(spacing: 12) {
                     Image(systemName: "ticket.fill").font(.largeTitle).foregroundStyle(Brand.gold)
+                    if model.ticketIsPast(current) { Label("Activiteit afgelopen", systemImage: "clock.arrow.circlepath").font(.subheadline.bold()).foregroundStyle(.white) }
                     Text(current.title).font(.title.bold()).multilineTextAlignment(.center).foregroundStyle(.white)
                     if let date = current.startsAt { Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide).hour().minute())).font(.subheadline).foregroundStyle(.white.opacity(0.8)) }
                     if let location = current.location { Label(location, systemImage: "mappin.and.ellipse").font(.caption).foregroundStyle(.white.opacity(0.8)) }
@@ -117,4 +135,16 @@ private struct WebsiteTicketQR: UIViewRepresentable {
     
         </script></body></html>
     """#
+}
+
+// Prefer the activity end date so an ongoing event stays with current tickets.
+extension AppModel {
+    func ticketIsPast(_ ticket: Ticket, at date: Date = .now) -> Bool {
+        if let activity = activities.first(where: { $0.id == ticket.activityID }) { return activity.isPast(at: date) }
+        // Older tickets may only contain a date, without the event's end time.
+        guard let start = ticket.startsAt else { return false }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
+        return calendar.startOfDay(for: start) < calendar.startOfDay(for: date)
+    }
 }
