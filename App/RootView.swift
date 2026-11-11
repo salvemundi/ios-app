@@ -78,7 +78,12 @@ struct HomeView: View {
                 .background(LinearGradient(colors: [Brand.purple, Brand.deepPurple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 28))
                 if let ticket = model.nextTicket {
                     VStack(alignment: .leading, spacing: 14) {
-                        SectionHeading(title: "Jou tickets")
+                        HStack {
+                            SectionHeading(title: "Jouw tickets")
+                            Button("Bekijk alles") { model.selectedTab = .tickets }
+                                .font(.subheadline.weight(.semibold)).fixedSize()
+                                .accessibilityLabel("Bekijk al mijn tickets")
+                        }
                         Button { model.selectedTicket = ticket } label: {
                             HStack(spacing: 16) {
                                 Image(systemName: "ticket.fill").font(.title).foregroundStyle(Brand.purple)

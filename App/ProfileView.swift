@@ -24,6 +24,8 @@ struct ProfileView: View {
                         }
                     }
                     Section("Meldingen") {
+                        Text(model.notificationStatus).font(.footnote).foregroundStyle(.secondary)
+                        if !model.notificationPreferencesAvailable { Text("Meldingsvoorkeuren zijn nog niet geladen. Ververs de app en probeer het opnieuw.").font(.caption).foregroundStyle(.secondary) }
                         Button { Task { await model.enableNotifications() } } label: { Label("Meldingen op deze iPhone inschakelen", systemImage: "bell.badge") }
                         preference("Inschrijvingen", keyPath: \.registrations)
                         preference("Betalingen", keyPath: \.payments)
@@ -62,7 +64,7 @@ struct ProfileView: View {
         } message: { Text("Je persoonlijke tickets en widgetgegevens worden van deze iPhone verwijderd.") }
     }
     private func preference(_ title: String, keyPath: WritableKeyPath<NotificationPreferences, Bool>) -> some View {
-        Toggle(title, isOn: Binding(get: { model.preferences[keyPath: keyPath] }, set: { value in var updated = model.preferences; updated[keyPath: keyPath] = value; Task { await model.savePreferences(updated) } }))
+        Toggle(title, isOn: Binding(get: { model.preferences[keyPath: keyPath] }, set: { value in var updated = model.preferences; updated[keyPath: keyPath] = value; Task { await model.savePreferences(updated) } })).disabled(!model.notificationPreferencesAvailable || model.notificationPreferencesSaving)
     }
     private func webLink(_ title: String, icon: String, path: String) -> some View { Link(destination: model.server.appendingPathComponent(path)) { Label(title, systemImage: icon) } }
 }

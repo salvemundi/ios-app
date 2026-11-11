@@ -14,6 +14,9 @@ final class AppModel {
     var tickets: [Ticket] = []
     var profile: MemberProfile?
     var preferences = NotificationPreferences()
+    var notificationStatus = "Meldingen nog niet gecontroleerd."
+    var notificationPreferencesAvailable = false
+    var notificationPreferencesSaving = false
     var session: AppSession?
     var isLoading = false
     var isSigningIn = false
@@ -168,6 +171,8 @@ final class AppModel {
         SecureSessionStore.clear(); LocalCache.clearPrivate()
         session = nil; profile = nil; tickets = []; selectedTicket = nil; checkoutURL = nil
         preferences = NotificationPreferences()
+        notificationPreferencesAvailable = false
+        notificationStatus = "Log in om meldingen in te stellen."
         UIApplication.shared.unregisterForRemoteNotifications()
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
@@ -214,16 +219,21 @@ final class AppModel {
             let loaded: NotificationPreferences = try await api.request("notification-preferences", token: token)
             guard generation == sessionGeneration, session?.token == token else { return }
             preferences = loaded
+            notificationPreferencesAvailable = true
         } catch {
             guard generation == sessionGeneration, session?.token == token else { return }
+            notificationPreferencesAvailable = false
+            notificationStatus = "Meldingen zijn nog niet beschikbaar op de server. Je kunt de rest van de app gebruiken."
             // Notifications are optional; their storage can be unavailable while core member APIs work.
             if let problem = error as? APIProblem, ["unauthorized", "session_expired", "invalid_session"].contains(problem.code) { handle(problem) }
         }
     }
 
     func savePreferences(_ value: NotificationPreferences) async {
-        guard !isDemo else { return }
+        guard !isDemo, notificationPreferencesAvailable, !notificationPreferencesSaving else { return }
         guard let token = session?.token else { return }
+        notificationPreferencesSaving = true
+        defer { notificationPreferencesSaving = false }
         let old = preferences; preferences = value
         let generation = sessionGeneration
         do {
@@ -241,18 +251,39 @@ final class AppModel {
     func enableNotifications() async {
         do {
             let allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
-            if allowed { UIApplication.shared.registerForRemoteNotifications(); notice = "Meldingen zijn ingeschakeld." }
-            else { notice = "Je kunt meldingen inschakelen in de instellingen van je iPhone." }
+            if allowed { notificationStatus = "Toestemming ontvangen. Deze iPhone wordt gekoppeld…"; UIApplication.shared.registerForRemoteNotifications() }
+            else { notificationStatus = "Meldingen staan uit in de iPhone-instellingen."; notice = "Je kunt meldingen inschakelen in de instellingen van je iPhone." }
         } catch { handle(error) }
     }
 
+    func notificationRegistrationFailed() {
+        notificationStatus = "Deze iPhone kon niet voor meldingen worden geregistreerd. Probeer het later opnieuw."
+    }
     func receivedDeviceToken(_ token: String) async { deviceToken = token; await registerDeviceIfPossible() }
     private func registerDeviceIfPossible() async {
-        guard !isDemo, let deviceToken, let token = session?.token else { return }
+        guard !isDemo, let token = session?.token else { return }
+        let generation = sessionGeneration
+        guard await NotificationAuthorization.isAllowed() else {
+            guard generation == sessionGeneration else { return }
+            notificationStatus = "Meldingen staan uit of zijn nog niet toegestaan op deze iPhone."
+            return
+        }
+        guard generation == sessionGeneration, session?.token == token else { return }
+        guard let deviceToken else {
+            notificationStatus = "Deze iPhone wordt voor meldingen geregistreerd…"
+            UIApplication.shared.registerForRemoteNotifications()
+            return
+        }
         struct Device: Encodable, Sendable { let token: String; let environment: String }
         let environment = Bundle.main.object(forInfoDictionaryKey: "APNS_ENVIRONMENT") as? String ?? "sandbox"
-        do { let _: MutationAcknowledgement = try await api.mutation("devices", token: token, value: Device(token: deviceToken, environment: environment)) }
-        catch { /* Retry after the next successful foreground refresh. */ }
+        do {
+            let _: MutationAcknowledgement = try await api.mutation("devices", token: token, value: Device(token: deviceToken, environment: environment))
+            guard generation == sessionGeneration, session?.token == token else { return }
+            notificationStatus = "Deze iPhone is gekoppeld. Bezorging hangt ook af van de meldingsdienst op acceptatie."
+        } catch {
+            guard generation == sessionGeneration, session?.token == token else { return }
+            notificationStatus = "Deze iPhone kon nog niet aan de meldingsdienst worden gekoppeld. We proberen het opnieuw bij verversen."
+        }
     }
 
     func open(_ url: URL) async {

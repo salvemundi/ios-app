@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageIO
+import AVFoundation
 import UIKit
 
 extension Color {
@@ -104,14 +105,34 @@ struct ActivityBanner: View {
     var fit = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var image: UIImage?
+    @State private var videoURL: URL?
     var body: some View {
-        AnimatedBannerImage(image: image, fit: fit, animate: !reduceMotion)
+        Group {
+            if let videoURL, !reduceMotion {
+                LoopingActivityVideo(url: videoURL, fit: fit, animate: !reduceMotion)
+            } else {
+                AnimatedBannerImage(image: image, fit: fit, animate: !reduceMotion)
+            }
+        }
             .accessibilityHidden(true)
             .task(id: url) {
                 image = nil
+                videoURL = nil
                 do {
                     let (data, response) = try await URLSession.shared.data(from: url)
                     guard !Task.isCancelled, (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 20_000_000 else { return }
+                    // Website banners can be video assets, even when described as GIFs.
+                    // Asset URLs contain IDs, so detect the response rather than the suffix.
+                    if response.mimeType?.hasPrefix("video/") == true {
+                        videoURL = url
+                        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+                        generator.appliesPreferredTrackTransform = true
+                        generator.maximumSize = CGSize(width: 900, height: 900)
+                        if let frame = try? await generator.image(at: .zero), !Task.isCancelled {
+                            image = UIImage(cgImage: frame.image)
+                        }
+                        return
+                    }
                     let decoded = await Task.detached(priority: .utility) { Self.decode(data) }.value
                     guard !Task.isCancelled else { return }
                     image = decoded
@@ -158,7 +179,74 @@ private struct AnimatedBannerImage: UIViewRepresentable {
     }
     func updateUIView(_ view: UIImageView, context: Context) {
         view.contentMode = fit ? .scaleAspectFit : .scaleAspectFill
-        view.image = animate ? image : (image?.images?.first ?? image)
+        view.stopAnimating()
+        view.animationImages = nil
+        view.image = image?.images?.first ?? image
+        if animate, let frames = image?.images, !frames.isEmpty {
+            view.animationImages = frames
+            view.animationDuration = image?.duration ?? 0
+            view.animationRepeatCount = 0
+            view.startAnimating()
+        }
     }
-    static func dismantleUIView(_ view: UIImageView, coordinator: ()) { view.stopAnimating(); view.image = nil }
+    static func dismantleUIView(_ view: UIImageView, coordinator: ()) { view.stopAnimating(); view.animationImages = nil; view.image = nil }
+}
+
+// Keep media silent and looping; no full-screen playback controls in a banner.
+private struct LoopingActivityVideo: UIViewRepresentable {
+    let url: URL
+    let fit: Bool
+    let animate: Bool
+    func makeUIView(context: Context) -> ActivityVideoSurface { ActivityVideoSurface() }
+    func updateUIView(_ view: ActivityVideoSurface, context: Context) {
+        view.configure(url: url, fit: fit, animate: animate)
+    }
+    static func dismantleUIView(_ view: ActivityVideoSurface, coordinator: ()) { view.clear() }
+}
+
+private final class ActivityVideoSurface: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    private var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    private var queue: AVQueuePlayer?
+    private var looper: AVPlayerLooper?
+    private var sourceURL: URL?
+    private var shouldAnimate = false
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+        NotificationCenter.default.addObserver(self, selector: #selector(pauseForBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeAfterBackground), name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func configure(url: URL, fit: Bool, animate: Bool) {
+        shouldAnimate = animate
+        playerLayer.videoGravity = fit ? .resizeAspect : .resizeAspectFill
+        if sourceURL != url {
+            clear()
+            sourceURL = url
+            let player = AVQueuePlayer()
+            player.isMuted = true
+            player.preventsDisplaySleepDuringVideoPlayback = false
+            looper = AVPlayerLooper(player: player, templateItem: AVPlayerItem(url: url))
+            queue = player
+            playerLayer.player = player
+        }
+        if animate && window != nil { queue?.play() } else { queue?.pause() }
+    }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil && shouldAnimate { queue?.play() } else { queue?.pause() }
+    }
+    @objc private func pauseForBackground() { queue?.pause() }
+    @objc private func resumeAfterBackground() { if window != nil && shouldAnimate { queue?.play() } }
+    func clear() {
+        queue?.pause()
+        looper?.disableLooping()
+        looper = nil
+        queue?.removeAllItems()
+        queue = nil
+        playerLayer.player = nil
+        sourceURL = nil
+    }
+    deinit { NotificationCenter.default.removeObserver(self) }
 }
