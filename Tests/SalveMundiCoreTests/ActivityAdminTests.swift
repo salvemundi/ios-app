@@ -45,3 +45,24 @@ struct ActivityAdminTests {
         #expect(decoded.memberPriceCents == 0)
     }
 }
+
+@Test func scanGateAcceptsNextTicketWithoutClosingScanner() {
+    var gate = AdminScanGate()
+    let start = Date(timeIntervalSince1970: 100)
+    let accepted0 = gate.accept("ticket-a", enabled: true, at: start)
+    #expect(accepted0 == true)
+    let accepted1 = gate.accept("ticket-a", enabled: false, at: start.addingTimeInterval(1))
+    #expect(accepted1 == false)
+    let accepted2 = gate.accept("ticket-b", enabled: false, at: start.addingTimeInterval(1.5))
+    #expect(accepted2 == false)
+    let accepted3 = gate.accept("ticket-b", enabled: true, at: start.addingTimeInterval(2))
+    #expect(accepted3 == true)
+    let accepted4 = gate.accept("ticket-b", enabled: true, at: start.addingTimeInterval(3))
+    #expect(accepted4 == false)
+    let accepted5 = gate.accept("ticket-b", enabled: true, at: start.addingTimeInterval(4))
+    #expect(accepted5 == false)
+    let accepted6 = gate.accept("ticket-b", enabled: true, at: start.addingTimeInterval(7))
+    #expect(accepted6 == true)
+    let accepted7 = gate.accept("", enabled: true, at: start.addingTimeInterval(8))
+    #expect(accepted7 == false)
+}

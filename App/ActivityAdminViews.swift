@@ -5,13 +5,14 @@ import UniformTypeIdentifiers
 
 struct ActivityAdminRootView: View {
     let initialActivityID: String?
+    var embedded = false
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var path: [String] = []
     var body: some View {
         Group {
             if model.canAdminActivities {
-                NavigationStack(path: $path) { ActivityAdminListView(initialActivityID: initialActivityID, path: $path) }
+                NavigationStack(path: $path) { ActivityAdminListView(initialActivityID: initialActivityID, embedded: embedded, path: $path) }
                     .id(model.adminRevision)
             } else {
                 NavigationStack {
@@ -22,7 +23,7 @@ struct ActivityAdminRootView: View {
                             Button("Toegang opnieuw controleren") { Task { await model.refreshActivityAdminAccess() } }.buttonStyle(PrimaryButtonStyle())
                         }
                     }.padding(20).navigationTitle("Activiteitenbeheer")
-                        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } } }
+                        .toolbar { if !embedded { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } } } }
                 }
             }
         }.privacySensitive()
@@ -31,6 +32,7 @@ struct ActivityAdminRootView: View {
 
 private struct ActivityAdminListView: View {
     let initialActivityID: String?
+    let embedded: Bool
     @Binding var path: [String]
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -40,6 +42,7 @@ private struct ActivityAdminListView: View {
     @State private var loading = false
     @State private var error: String?
     @State private var showCreate = false
+    @State private var showScannerPicker = false
     private var activities: [AdminActivity] {
         (model.adminCollection?.activities ?? []).filter {
             let time = $0.activity.endsAt ?? $0.activity.startsAt ?? .distantFuture
@@ -52,6 +55,9 @@ private struct ActivityAdminListView: View {
     var body: some View {
         List {
             if let error { AdminErrorRow(message: error, retry: { Task { await load() } }) }
+            Section {
+                Button { showScannerPicker = true } label: { Label("Tickets scannen", systemImage: "qrcode.viewfinder").font(.headline).padding(.vertical, 6) }
+            }
             Section {
                 Picker("Periode", selection: $period) { Text("Binnenkort").tag("upcoming"); Text("Voorbij").tag("past"); Text("Alles").tag("all") }.pickerStyle(.segmented)
                 if let committees = model.adminCollection?.committees, !committees.isEmpty {
@@ -82,10 +88,11 @@ private struct ActivityAdminListView: View {
         .searchable(text: $search, prompt: "Zoek een activiteit")
         .navigationDestination(for: String.self) { ActivityAdminDetailView(activityID: $0) }
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) { Button("Sluiten") { dismiss() } }
+            if !embedded { ToolbarItem(placement: .topBarLeading) { Button("Sluiten") { dismiss() } } }
             if model.adminCollection?.canCreate == true { ToolbarItem(placement: .topBarTrailing) { Button("Nieuw", systemImage: "plus") { showCreate = true } } }
         }
         .task { await load(); if let id = initialActivityID { path = [id] } }
+        .sheet(isPresented: $showScannerPicker, onDismiss: { Task { await load() } }) { NavigationStack { ActivityAdminScannerPicker() } }
         .sheet(isPresented: $showCreate) { NavigationStack { ActivityAdminEditor(detail: nil) { _ in Task { await load() } } } }
         .refreshable { await load() }
     }
@@ -128,6 +135,9 @@ private struct ActivityAdminDetailView: View {
                     HStack { AdminCount(title: "Bevestigd", value: detail.summary.confirmedCount); Spacer(); AdminCount(title: "Openstaand", value: detail.summary.pendingCount); Spacer(); AdminCount(title: "Aanwezig", value: detail.summary.checkedInCount) }.padding(.vertical, 8)
                 }
                 Section("Deelnemers") {
+                    if detail.summary.canCheckIn {
+                        NavigationLink { ActivityAdminScannerSheet(activityID: activityID) } label: { Label("Tickets scannen", systemImage: "qrcode.viewfinder") }
+                    }
                     NavigationLink { ActivityAdminRegistrationsView(activityID: activityID) } label: { Label("Aanmeldingen en aanwezigheid", systemImage: "person.2") }
                 }
                 Section("Activiteit") {
@@ -524,5 +534,54 @@ private enum AdminPDF {
                 y += height
             }
         }
+    }
+}
+
+struct ActivityAdminScannerPicker: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var search = ""
+    @State private var loading = false
+    @State private var error: String?
+    private var activities: [AdminActivity] {
+        (model.adminCollection?.activities ?? []).filter { $0.canCheckIn && (search.isEmpty || $0.activity.title.localizedCaseInsensitiveContains(search)) }.sorted {
+            let aPast = $0.activity.isPast(), bPast = $1.activity.isPast()
+            if aPast != bPast { return !aPast }
+            if aPast { return ($0.activity.startsAt ?? .distantPast) > ($1.activity.startsAt ?? .distantPast) }
+            return ($0.activity.startsAt ?? .distantFuture) < ($1.activity.startsAt ?? .distantFuture)
+        }
+    }
+    var body: some View {
+        Group {
+            if model.canAdminActivities {
+                List {
+                    Section { Text("Kies de activiteit waarvoor je tickets wilt scannen.").foregroundStyle(.secondary) }
+                    if loading { ProgressView("Activiteiten laden…") }
+                    if let error { Text(error).foregroundStyle(.red) }
+                    ForEach(activities) { item in
+                        NavigationLink { ActivityAdminScannerSheet(activityID: item.id) } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label(item.activity.title, systemImage: "qrcode.viewfinder").font(.headline)
+                                if let date = item.activity.startsAt { Text(date.formatted(.dateTime.day().month().year().hour().minute())).font(.caption).foregroundStyle(.secondary) }
+                                if item.activity.isPast() { Text("Afgelopen activiteit").font(.caption).foregroundStyle(.secondary) }
+                            }.padding(.vertical, 6)
+                        }
+                    }
+                    if activities.isEmpty && !loading && error == nil { Text("Geen toegestane activiteiten gevonden.").foregroundStyle(.secondary) }
+                }
+            } else { EmptyState(icon: "lock.shield", title: "Geen toegang", message: "Je hebt geen toegang tot tickets scannen.") }
+        }
+        .navigationTitle("Tickets scannen").navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $search, prompt: "Zoek een activiteit")
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } } }
+        .task { await load() }
+        .refreshable { await load() }
+        .privacySensitive()
+    }
+    private func load() async {
+        loading = true; error = nil; defer { loading = false }
+        do { try await model.loadAdminActivities() }
+        catch is CancellationError { }
+        catch { self.error = "Activiteiten konden niet worden geladen. Ververs om opnieuw te proberen." }
     }
 }

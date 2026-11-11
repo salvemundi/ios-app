@@ -371,8 +371,10 @@ final class AppModel {
         selectedActivity = nil; selectedTicket = nil; checkoutURL = nil
         _ = await refreshActivityAdminAccess()
         guard signedIn else { return }
-        selectedTab = .profile
-        adminPresentation = ActivityAdminPresentation(activityID: activityID)
+        if canAdminActivities {
+            selectedTab = .admin
+            if activityID != nil { adminPresentation = ActivityAdminPresentation(activityID: activityID) }
+        } else { adminPresentation = ActivityAdminPresentation(activityID: activityID) }
     }
 
     private func clearActivityAdminState() {
@@ -480,6 +482,6 @@ final class AppModel {
     }
 }
 
-enum AppTab: Hashable { case home, activities, tickets, profile }
+enum AppTab: Hashable { case home, activities, tickets, profile, admin }
 
 struct ActivityAdminPresentation: Identifiable { let id = UUID(); let activityID: String? }

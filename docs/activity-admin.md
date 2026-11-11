@@ -32,3 +32,7 @@ Samenvattingen verlopen na maximaal vijftien minuten. Bij afmelden of geweigerde
 Beide targets gebruiken App Group `group.nl.salvemundi.ios`. Voor Keychain Sharing staat de eigen private groep als eerste en `$(AppIdentifierPrefix)nl.salvemundi.ios.shared` als tweede. Dit houdt bestaande app-inloggegevens privé en maakt uitsluitend het beperkte widgetbewijs deelbaar.
 
 Gebruik hetzelfde Apple-team voor app en widget. Laat Xcode de provisioningprofielen na de capabilitywijziging vernieuwen. Voeg de widget op een fysieke iPhone toe en test commissie-, leider- en brede beheerrollen, verlies van rechten, afmelden en verlopen sessies.
+
+## Doorlopend tickets scannen
+
+Open op Home Tickets scannen en kies de activiteit. Bevoegde leden hebben ook een eigen Beheer-tab met een scanknop bovenaan; vanuit een activiteit is Tickets scannen rechtstreeks bereikbaar. De camera blijft open; een korte popup meldt Ingecheckt, Al ingecheckt, Geen geldig ticket of Nog niet betaald. Na de popup wordt automatisch verder gescand. Een code die in beeld blijft wordt onderdrukt; een andere code die tijdens de popup verschijnt wordt niet vergeten. De server bepaalt of iemand aanwezig wordt gezet. Bij een verbindingsfout wordt geen lokale aanwezigheid bevestigd. De bestaande scanfunctie onder Aanmeldingen en aanwezigheid gebruikt dezelfde scanner.

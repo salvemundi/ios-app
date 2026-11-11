@@ -144,3 +144,17 @@ public enum AdminExport {
         return "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 }
+
+// Suppress a code while it remains in view; don't consume the next ticket while a popup is visible.
+public struct AdminScanGate: Sendable {
+    private var lastToken: String?
+    private var lastSeen = Date.distantPast
+    public init() {}
+    public mutating func accept(_ token: String, enabled: Bool, at now: Date = .now) -> Bool {
+        let repeated = token == lastToken && now.timeIntervalSince(lastSeen) < 2
+        if token == lastToken { lastSeen = now }
+        guard enabled, !token.isEmpty, !repeated else { return false }
+        lastToken = token; lastSeen = now
+        return true
+    }
+}

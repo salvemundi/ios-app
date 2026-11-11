@@ -8,7 +8,13 @@ struct RootView: View {
             Tab("Home", systemImage: "house.fill", value: .home) { NavigationStack { HomeView() } }
             Tab("Activiteiten", systemImage: "calendar", value: .activities) { NavigationStack { ActivitiesView() } }
             Tab("Tickets", systemImage: "qrcode", value: .tickets) { NavigationStack { TicketsView() } }
+            if model.canAdminActivities {
+                Tab("Beheer", systemImage: "slider.horizontal.3", value: .admin) { ActivityAdminRootView(initialActivityID: nil, embedded: true) }
+            }
             Tab("Profiel", systemImage: "person.crop.circle", value: .profile) { NavigationStack { ProfileView() } }
+        }
+        .onChange(of: model.canAdminActivities) { _, allowed in
+            if !allowed && model.selectedTab == .admin { model.selectedTab = .home }
         }
         .sheet(item: $model.adminPresentation) { presentation in
             ActivityAdminRootView(initialActivityID: presentation.activityID)
@@ -53,6 +59,7 @@ struct RootView: View {
 
 struct HomeView: View {
     @Environment(AppModel.self) private var model
+    @State private var showQuickScanner = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
@@ -76,6 +83,12 @@ struct HomeView: View {
                 }
                 .padding(24).frame(maxWidth: .infinity, alignment: .leading)
                 .background(LinearGradient(colors: [Brand.purple, Brand.deepPurple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 28))
+                if model.canAdminActivities {
+                    HStack(spacing: 12) {
+                        Button { model.selectedTab = .admin } label: { Label("Beheer", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity).padding(.vertical, 12) }.buttonStyle(.bordered)
+                        Button { showQuickScanner = true } label: { Label("Tickets scannen", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity).padding(.vertical, 12) }.buttonStyle(.borderedProminent).tint(Brand.purple)
+                    }
+                }
                 if let ticket = model.nextTicket {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack {
@@ -109,6 +122,8 @@ struct HomeView: View {
         }
         .background(Brand.background).navigationTitle("Salve Mundi").navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
+        .sheet(isPresented: $showQuickScanner) { NavigationStack { ActivityAdminScannerPicker() } }
+        .onChange(of: model.canAdminActivities) { _, allowed in if !allowed { showQuickScanner = false } }
     }
 }
 

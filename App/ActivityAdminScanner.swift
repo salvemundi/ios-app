@@ -6,49 +6,87 @@ struct ActivityAdminScannerSheet: View {
     let activityID: String
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @State private var scannerID = UUID()
     @State private var processing = false
-    @State private var result: AdminScanResult?
-    @State private var error: String?
+    @State private var statusTitle: String?
+    @State private var statusMessage = ""
+    @State private var statusKind = "success"
+    @State private var cameraError: String?
+    @State private var resetTask: Task<Void, Never>?
+    @State private var verificationTask: Task<Void, Never>?
     var body: some View {
         VStack(spacing: 20) {
-            if let result {
-                Image(systemName: "checkmark.circle.fill").font(.system(size: 64)).foregroundStyle(.green)
-                Text(result.registration.name).font(.title2.bold())
-                Text(result.alreadyCheckedIn ? "Deze deelnemer was al ingecheckt." : "Deelnemer is ingecheckt.").foregroundStyle(.secondary)
-                Button("Volgende QR-code scannen") { reset() }.buttonStyle(PrimaryButtonStyle())
-            } else if let error {
-                Image(systemName: "exclamationmark.shield").font(.system(size: 52)).foregroundStyle(Brand.purple)
-                Text(error).multilineTextAlignment(.center)
-                Button("Opnieuw scannen") { reset() }.buttonStyle(PrimaryButtonStyle())
+            ZStack {
+                CameraScannerView(enabled: !processing && statusTitle == nil && cameraError == nil, onCode: { token in
+                    guard !processing, statusTitle == nil else { return }
+                    processing = true
+                    verificationTask = Task { await verify(token) }
+                }, onError: { cameraError = $0 })
+                RoundedRectangle(cornerRadius: 20).stroke(Brand.gold, lineWidth: 3).frame(width: 230, height: 230).accessibilityHidden(true)
+                if processing { ProgressView("Ticket controleren…").padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16)) }
+                if let title = statusTitle {
+                    VStack(spacing: 12) {
+                        Image(systemName: statusKind == "success" ? "checkmark.circle.fill" : statusKind == "warning" ? "exclamationmark.circle.fill" : "xmark.circle.fill")
+                            .font(.system(size: 44)).foregroundStyle(statusKind == "success" ? .green : statusKind == "warning" ? .orange : .red)
+                        Text(title).font(.title2.bold())
+                        Text(statusMessage).multilineTextAlignment(.center)
+                        Text("De scanner gaat automatisch verder.").font(.caption).foregroundStyle(.secondary)
+                        Button("Volgende scannen") { clearStatus() }.font(.headline)
+                    }.padding(24).frame(maxWidth: 320).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+                    .accessibilityElement(children: .combine)
+                }
+            }.frame(height: 440).clipShape(RoundedRectangle(cornerRadius: 24))
+            if let cameraError {
+                Text(cameraError).multilineTextAlignment(.center).foregroundStyle(.secondary)
                 Button("Open iPhone-instellingen") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
             } else {
-                CameraScannerView(onCode: { token in Task { await verify(token) } }, onError: { error = $0 })
-                    .id(scannerID).clipShape(RoundedRectangle(cornerRadius: 24)).frame(maxHeight: 440)
-                    .overlay { RoundedRectangle(cornerRadius: 20).stroke(Brand.gold, lineWidth: 3).frame(width: 230, height: 230).accessibilityHidden(true) }
-                if processing { ProgressView("Ticket controleren…") }
-                Text("Scan alleen tickets voor deze activiteit. De server controleert de betaling en voorkomt dubbel inchecken.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text("Scan achter elkaar. Haal de gescande code uit beeld voordat je die opnieuw aanbiedt.").font(.subheadline).multilineTextAlignment(.center)
+                Text("Alleen betaalde of bevestigde tickets voor deze activiteit worden door de server ingecheckt.").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             Spacer(minLength: 0)
         }
-        .padding(20).navigationTitle("QR-ticket controleren").navigationBarTitleDisplayMode(.inline)
+        .padding(20).navigationTitle("Tickets scannen").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } } }
+        .onDisappear { verificationTask?.cancel(); resetTask?.cancel() }
         .privacySensitive()
     }
-    private func reset() { result = nil; error = nil; processing = false; scannerID = UUID() }
+    private func clearStatus() { resetTask?.cancel(); statusTitle = nil; statusMessage = "" }
+    private func showStatus(_ title: String, message: String, kind: String) {
+        statusTitle = title; statusMessage = message; statusKind = kind
+        UINotificationFeedbackGenerator().notificationOccurred(kind == "success" ? .success : kind == "warning" ? .warning : .error)
+        UIAccessibility.post(notification: .announcement, argument: title + ". " + message)
+        resetTask?.cancel()
+        resetTask = Task {
+            try? await Task.sleep(for: .seconds(kind == "success" ? 1.5 : 2.5))
+            guard !Task.isCancelled else { return }
+            statusTitle = nil; statusMessage = ""
+        }
+    }
     private func verify(_ token: String) async {
-        guard !processing else { return }
-        processing = true; defer { processing = false }
-        do { result = try await model.adminMutation("admin/activities/\(activityID)/scan", value: AdminScanRequest(token: token)) }
-        catch is CancellationError { } catch { self.error = error.localizedDescription }
+        defer { processing = false }
+        do {
+            let result: AdminScanResult = try await model.adminMutation("admin/activities/\(activityID)/scan", value: AdminScanRequest(token: token))
+            guard !Task.isCancelled else { return }
+            showStatus(result.alreadyCheckedIn ? "Al ingecheckt" : "Ingecheckt", message: result.registration.name, kind: result.alreadyCheckedIn ? "warning" : "success")
+        } catch is CancellationError { }
+        catch {
+            guard !Task.isCancelled else { return }
+            if let problem = error as? APIProblem {
+                switch problem.code {
+                case "not_found": showStatus("Geen geldig ticket", message: "Deze QR-code hoort niet bij deze activiteit.", kind: "error")
+                case "unpaid_registration": showStatus("Nog niet betaald", message: "Deze deelnemer is niet ingecheckt.", kind: "warning")
+                default: showStatus("Niet ingecheckt", message: problem.message, kind: "error")
+                }
+            } else { showStatus("Controle niet gelukt", message: "Controleer de verbinding en scan opnieuw. De aanwezigheid kon niet worden bevestigd.", kind: "error") }
+        }
     }
 }
 
 private struct CameraScannerView: UIViewControllerRepresentable {
+    let enabled: Bool
     let onCode: @MainActor (String) -> Void
     let onError: @MainActor (String) -> Void
     func makeUIViewController(context: Context) -> CameraScannerController { CameraScannerController(onCode: onCode, onError: onError) }
-    func updateUIViewController(_ controller: CameraScannerController, context: Context) { }
+    func updateUIViewController(_ controller: CameraScannerController, context: Context) { controller.scanningEnabled = enabled }
     static func dismantleUIViewController(_ controller: CameraScannerController, coordinator: ()) { controller.stop() }
 }
 
@@ -59,7 +97,8 @@ private final class CameraScannerController: UIViewController, @preconcurrency A
     private let box = CaptureSessionBox()
     private let captureQueue = DispatchQueue(label: "nl.salvemundi.ios.qr-camera")
     private var preview: AVCaptureVideoPreviewLayer?
-    private var didScan = false
+    var scanningEnabled = true
+    private var gate = AdminScanGate()
     private var active = true
     private let onCode: @MainActor (String) -> Void
     private let onError: @MainActor (String) -> Void
@@ -106,7 +145,10 @@ private final class CameraScannerController: UIViewController, @preconcurrency A
         captureQueue.async { if box.session.isRunning { box.session.stopRunning() } }
     }
     func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
-        guard !didScan, let token = (metadataObjects.first as? AVMetadataMachineReadableCodeObject)?.stringValue, !token.isEmpty else { return }
-        didScan = true; stop(); onCode(token)
+        guard active, UIApplication.shared.applicationState == .active,
+              let token = (metadataObjects.first as? AVMetadataMachineReadableCodeObject)?.stringValue, !token.isEmpty else { return }
+        guard gate.accept(token, enabled: scanningEnabled) else { return }
+        scanningEnabled = false
+        onCode(token)
     }
 }
