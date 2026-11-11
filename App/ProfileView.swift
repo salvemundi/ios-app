@@ -27,6 +27,7 @@ struct ProfileView: View {
                         Text(model.notificationStatus).font(.footnote).foregroundStyle(.secondary)
                         if !model.notificationPreferencesAvailable { Text("Meldingsvoorkeuren zijn nog niet geladen. Ververs de app en probeer het opnieuw.").font(.caption).foregroundStyle(.secondary) }
                         Button { Task { await model.enableNotifications() } } label: { Label("Meldingen op deze iPhone inschakelen", systemImage: "bell.badge") }
+                        NavigationLink("Activiteiten en commissiemeldingen") { ActivityNotificationSettingsView() }
                         preference("Inschrijvingen", keyPath: \.registrations)
                         preference("Betalingen", keyPath: \.payments)
                         preference("Wijzigingen van activiteiten", keyPath: \.eventChanges)
@@ -89,5 +90,107 @@ private struct EditProfileView: View {
             ToolbarItem(placement: .cancellationAction) { Button("Annuleren") { dismiss() } }
             ToolbarItem(placement: .confirmationAction) { Button { Task { if await model.saveProfile(phone: phone) { dismiss() } } } label: { if model.isSaving { ProgressView() } else { Text("Opslaan") } }.disabled(model.isSaving) }
         }
+    }
+}
+
+
+private struct ActivityNotificationSettingsView: View {
+    @Environment(AppModel.self) private var model
+    @State private var draft = NotificationPreferences()
+    @State private var selectedCommitteesOnly = false
+    @State private var thresholds = ""
+    @State private var loaded = false
+    @State private var saved = false
+    private var parsedThresholds: [Int]? {
+        if thresholds.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [] }
+        let parts = thresholds.split(separator: ",", omittingEmptySubsequences: false)
+        let values = parts.compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == values.count, values.allSatisfy({ (1...10000).contains($0) }), Set(values).count <= 10 else { return nil }
+        return Set(values).sorted()
+    }
+    private var valid: Bool {
+        loaded && model.notificationPreferencesAvailable && model.notificationOptions != nil && parsedThresholds != nil && (!draft.activityAnnouncements || !selectedCommitteesOnly || !draft.activityCommitteeIDs.isEmpty)
+    }
+    var body: some View {
+        Form {
+            Section {
+                Text("Kies welke activiteiten je wilt volgen en wanneer je als organisator een seintje wilt krijgen.").font(.subheadline)
+                if model.notificationOptionsLoading { ProgressView("Instellingen laden…") }
+                if let error = model.notificationOptionsError { Text(error).foregroundStyle(.red); Button("Opnieuw proberen") { Task { await load() } } }
+                if !model.notificationPreferencesAvailable && !model.notificationOptionsLoading { Text("Meldingsvoorkeuren zijn nog niet beschikbaar. Je keuzes zijn nog niet opgeslagen.").foregroundStyle(.secondary) }
+            }
+            if loaded, let options = model.notificationOptions {
+                Section {
+                    Toggle("Nieuwe activiteiten", isOn: $draft.activityAnnouncements)
+                    if draft.activityAnnouncements {
+                        Picker("Van welke commissies?", selection: $selectedCommitteesOnly) {
+                            Text("Alle commissies").tag(false)
+                            Text("Zelf kiezen").tag(true)
+                        }
+                        if selectedCommitteesOnly {
+                            if options.committees.isEmpty { Text("Er zijn nog geen commissies beschikbaar.").foregroundStyle(.secondary) }
+                            ForEach(options.committees) { committee in
+                                Toggle(committee.name, isOn: Binding(get: { draft.activityCommitteeIDs.contains(committee.id) }, set: { selected in
+                                    if selected { draft.activityCommitteeIDs = Array(Set(draft.activityCommitteeIDs + [committee.id])).sorted() }
+                                    else { draft.activityCommitteeIDs.removeAll { $0 == committee.id } }
+                                }))
+                            }
+                            if draft.activityCommitteeIDs.isEmpty { Text("Kies minimaal één commissie.").font(.caption).foregroundStyle(.orange) }
+                        }
+                    }
+                } header: { Text("Activiteiten volgen") } footer: { Text("Je ontvangt een melding wanneer een nieuwe activiteit van je selectie wordt gepubliceerd. Dit staat los van meldingen over je eigen inschrijvingen.") }
+                if options.canReceiveOrganizerAlerts {
+                    Section {
+                        Toggle("Bijna vol", isOn: $draft.organizerAlmostFull)
+                        if draft.organizerAlmostFull {
+                            Stepper("Vanaf \(draft.organizerCapacityPercent)% bezet", value: $draft.organizerCapacityPercent, in: 50...100, step: 5)
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Melden bij aantallen aanmeldingen")
+                            TextField("Bijvoorbeeld 10, 25, 50", text: $thresholds).keyboardType(.numbersAndPunctuation).accessibilityLabel("Melden bij aantallen aanmeldingen")
+                        }
+                        if parsedThresholds == nil { Text("Gebruik maximaal tien hele aantallen van 1 tot 10.000, gescheiden door komma’s.").font(.caption).foregroundStyle(.red) }
+                        if !options.organizerCommittees.isEmpty { Text("Voor: " + options.organizerCommittees.map(\.name).joined(separator: ", ")).font(.caption).foregroundStyle(.secondary) }
+                    } header: { Text("Als organisator") } footer: { Text("Meldingen tellen bevestigde aanmeldingen. ‘Bijna vol’ geldt voor activiteiten met een maximumaantal deelnemers. Laat de aantallen leeg om die meldingen uit te zetten. Je ontvangt alleen meldingen voor activiteiten die je volgens je actuele beheerrechten mag zien.") }
+                }
+                Section {
+                    Button {
+                        Task {
+                            var value = draft
+                            value.activityCommitteeIDs = selectedCommitteesOnly ? draft.activityCommitteeIDs : []
+                            value.organizerSignupThresholds = parsedThresholds ?? []
+                            if !options.canReceiveOrganizerAlerts {
+                                value.organizerAlmostFull = false
+                                value.organizerSignupThresholds = []
+                            }
+                            // Keep the other four settings at their current server-backed values.
+                            value.registrations = model.preferences.registrations
+                            value.payments = model.preferences.payments
+                            value.eventChanges = model.preferences.eventChanges
+                            value.reminders = model.preferences.reminders
+                            if await model.savePreferences(value) { draft = model.preferences; saved = true }
+                        }
+                    } label: {
+                        HStack { Text("Voorkeuren opslaan"); Spacer(); if model.notificationPreferencesSaving { ProgressView() } }
+                    }.disabled(!valid || model.notificationPreferencesSaving)
+                    if saved { Label("Je voorkeuren zijn opgeslagen", systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
+                }
+            }
+        }
+        .navigationTitle("Activiteitsmeldingen").navigationBarTitleDisplayMode(.inline)
+        .disabled(model.notificationPreferencesSaving)
+        .task { await load() }
+        .onChange(of: draft) { _, _ in saved = false }
+        .onChange(of: thresholds) { _, _ in saved = false }
+        .onChange(of: selectedCommitteesOnly) { _, _ in saved = false }
+    }
+    private func load() async {
+        loaded = false
+        await model.loadNotificationOptions()
+        guard model.notificationPreferencesAvailable, model.notificationOptions != nil else { return }
+        draft = model.preferences
+        selectedCommitteesOnly = !draft.activityCommitteeIDs.isEmpty
+        thresholds = draft.organizerSignupThresholds.map(String.init).joined(separator: ", ")
+        loaded = true
     }
 }

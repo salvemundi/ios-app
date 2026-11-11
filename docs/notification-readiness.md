@@ -13,3 +13,10 @@ De bestaande acceptatiewerker ondersteunt aanmeldingen, betalingen, activiteitsw
 5. Voer daarna een gecontroleerde pilot uit met een testaanmelding en testwijziging. Voor TestFlight is de afzonderlijke acceptance-optie voor productie-APNs nodig; de API blijft acceptatie.
 
 De serverinstructies staan in de website-repo onder `docs/mobile-notifications-acceptance.md`. Deze verbetering heeft geen databasewijzigingen uitgevoerd en geen echte pushberichten verstuurd.
+
+
+## Activiteiten en commissiemeldingen
+
+Open Profiel → Meldingen → Activiteiten en commissiemeldingen. Nieuwe activiteiten staan standaard uit. Je kunt alle commissies volgen of zelf commissies kiezen; bij zelf kiezen is minstens één commissie verplicht. Organisatoren met actuele beheerrechten kunnen onafhankelijk ‘bijna vol’ (50–100 procent bezetting) en meldingen bij maximaal tien bevestigde aanmeldingsaantallen (1–10.000) instellen. Een leeg aantallenveld schakelt die meldingen uit. Opslaan is een bewuste actie en krijgt pas een bevestiging na een geslaagde serveraanvraag.
+
+Commissies en toegangsrechten komen van de server. De app gebruikt GET `notification-preferences/options` en GET/PATCH `notification-preferences`; oudere voorkeurantwoorden blijven leesbaar met nieuwe abonnementen uitgeschakeld. De server blijft bij verwerking en bezorging beslissen welke organisator toegang heeft. Deze opties zetten APNs-bezorging niet vanzelf aan; daarvoor blijft de acceptatiepilotconfiguratie hierboven nodig.

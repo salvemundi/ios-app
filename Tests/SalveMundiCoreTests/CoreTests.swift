@@ -6,6 +6,33 @@ import Testing
 @testable import SalveMundiCore
 
 struct CoreTests {
+    @Test func legacyNotificationPreferencesKeepNewSubscriptionsOptIn() throws {
+        let old = Data(#"{"registrations":true,"payments":false,"eventChanges":true,"reminders":false}"#.utf8)
+        let value = try JSONCoding.decoder().decode(NotificationPreferences.self, from: old)
+        #expect(!value.payments)
+        #expect(!value.reminders)
+        #expect(!value.activityAnnouncements)
+        #expect(value.activityCommitteeIDs.isEmpty)
+        #expect(!value.organizerAlmostFull)
+        #expect(value.organizerCapacityPercent == 90)
+        #expect(value.organizerSignupThresholds.isEmpty)
+    }
+
+    @Test func notificationCommitteeAndOrganizerChoicesRoundTrip() throws {
+        var value = NotificationPreferences()
+        value.activityAnnouncements = true
+        value.activityCommitteeIDs = [2, 7]
+        value.organizerAlmostFull = true
+        value.organizerCapacityPercent = 85
+        value.organizerSignupThresholds = [10, 25, 50]
+        let decoded = try JSONCoding.decoder().decode(NotificationPreferences.self, from: JSONCoding.encoder().encode(value))
+        #expect(decoded == value)
+        let options = try JSONCoding.decoder().decode(NotificationOptions.self, from: Data(#"{"committees":[{"id":2,"name":"Feest"}],"organizerCommittees":[],"canReceiveOrganizerAlerts":false}"#.utf8))
+        #expect(options.committees.first?.id == 2)
+        #expect(!options.canReceiveOrganizerAlerts)
+        #expect(options.organizerCommittees.isEmpty)
+    }
+
     @Test func pastActivitiesCloseRegistrationAndRespectEndDate() throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         for (start, end, past) in [(-100.0, Optional(-1.0), true), (-100.0, Optional(100.0), false), (-1.0, nil, true), (100.0, nil, false)] {

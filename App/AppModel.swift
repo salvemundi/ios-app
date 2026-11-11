@@ -15,6 +15,9 @@ final class AppModel {
     var profile: MemberProfile?
     var preferences = NotificationPreferences()
     var notificationStatus = "Meldingen nog niet gecontroleerd."
+    var notificationOptions: NotificationOptions?
+    var notificationOptionsLoading = false
+    var notificationOptionsError: String?
     var notificationPreferencesAvailable = false
     var notificationPreferencesSaving = false
     var session: AppSession?
@@ -172,6 +175,8 @@ final class AppModel {
         session = nil; profile = nil; tickets = []; selectedTicket = nil; checkoutURL = nil
         preferences = NotificationPreferences()
         notificationPreferencesAvailable = false
+        notificationOptions = nil
+        notificationOptionsError = nil
         notificationStatus = "Log in om meldingen in te stellen."
         UIApplication.shared.unregisterForRemoteNotifications()
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
@@ -229,22 +234,44 @@ final class AppModel {
         }
     }
 
-    func savePreferences(_ value: NotificationPreferences) async {
-        guard !isDemo, notificationPreferencesAvailable, !notificationPreferencesSaving else { return }
-        guard let token = session?.token else { return }
+    func loadNotificationOptions() async {
+        guard let token = session?.token, signedIn, !isDemo else { notificationOptions = nil; return }
+        let generation = sessionGeneration
+        notificationOptionsLoading = true
+        notificationOptions = nil
+        notificationOptionsError = nil
+        defer { if generation == sessionGeneration { notificationOptionsLoading = false } }
+        await refreshNotificationPreferences(token: token, generation: generation)
+        do {
+            let loaded: NotificationOptions = try await api.request("notification-preferences/options", token: token)
+            guard generation == sessionGeneration, session?.token == token else { return }
+            notificationOptions = loaded
+        } catch {
+            guard generation == sessionGeneration, session?.token == token else { return }
+            notificationOptionsError = "Commissies en beheerrechten konden niet worden geladen. Probeer het opnieuw."
+            if let problem = error as? APIProblem, ["unauthorized", "session_expired", "invalid_session"].contains(problem.code) { handle(problem) }
+        }
+    }
+
+    @discardableResult
+    func savePreferences(_ value: NotificationPreferences) async -> Bool {
+        guard !isDemo, notificationPreferencesAvailable, !notificationPreferencesSaving else { return false }
+        guard let token = session?.token else { return false }
         notificationPreferencesSaving = true
         defer { notificationPreferencesSaving = false }
         let old = preferences; preferences = value
         let generation = sessionGeneration
         do {
             let updated: NotificationPreferences = try await api.mutation("notification-preferences", method: "PATCH", token: token, value: value)
-            guard generation == sessionGeneration, session?.token == token else { return }
+            guard generation == sessionGeneration, session?.token == token else { return false }
             preferences = updated
+            return true
         } catch {
-            guard generation == sessionGeneration, session?.token == token else { return }
+            guard generation == sessionGeneration, session?.token == token else { return false }
             preferences = old
             if let problem = error as? APIProblem, ["unauthorized", "session_expired", "invalid_session"].contains(problem.code) { handle(problem) }
             else { errorMessage = "Je meldingsvoorkeuren konden niet worden opgeslagen. Probeer het later opnieuw." }
+            return false
         }
     }
 
