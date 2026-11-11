@@ -66,7 +66,7 @@ private struct ActivityAdminListView: View {
                         ForEach(committees) { Text($0.name).tag(Optional($0.id)) }
                     }
                 }
-                HStack { AdminCount(title: "Activiteiten", value: activities.count); Spacer(); AdminCount(title: "Bevestigd", value: activities.reduce(0) { $0 + $1.confirmedCount }); Spacer(); AdminCount(title: "Ingecheckt", value: activities.reduce(0) { $0 + $1.checkedInCount }) }.padding(.vertical, 8)
+                HStack { AdminCount(title: "Activiteiten", value: activities.count); Spacer(); AdminCount(title: "Aangemeld", value: activities.reduce(0) { $0 + $1.confirmedCount }); Spacer(); AdminCount(title: "Ingecheckt", value: activities.reduce(0) { $0 + $1.checkedInCount }) }.padding(.vertical, 8)
             }
             Section("Jouw activiteiten") {
                 if loading && model.adminCollection == nil { ProgressView("Activiteiten laden…") }
@@ -77,7 +77,7 @@ private struct ActivityAdminListView: View {
                             HStack { Text(item.activity.title).font(.headline); Spacer(); Text(item.statusLabel).font(.caption).foregroundStyle(item.status == "draft" ? .secondary : Brand.purple) }
                             if let date = item.activity.startsAt { Text(date.formatted(.dateTime.day().month().year().hour().minute())).font(.caption).foregroundStyle(.secondary) }
                             if let committee = item.committeeName { Text(committee).font(.caption).foregroundStyle(.secondary) }
-                            HStack(spacing: 16) { Label("\(item.confirmedCount) bevestigd", systemImage: "person.2"); Label(item.activity.capacity.map { "\(max(0, $0 - item.confirmedCount - item.pendingCount)) plekken vrij" } ?? "Geen limiet", systemImage: "person.badge.plus"); Label("\(item.checkedInCount)", systemImage: "checkmark.circle") }.font(.caption2).foregroundStyle(.secondary)
+                            HStack(spacing: 16) { Label("\(item.confirmedCount) aangemeld", systemImage: "person.2"); Label(item.activity.capacity.map { "\(max(0, $0 - item.confirmedCount - item.pendingCount)) plekken vrij" } ?? "Geen limiet", systemImage: "person.badge.plus"); Label("\(item.checkedInCount)", systemImage: "checkmark.circle") }.font(.caption2).foregroundStyle(.secondary)
                         }.padding(.vertical, 6)
                     }
                 }
@@ -132,7 +132,7 @@ private struct ActivityAdminDetailView: View {
                     LabeledContent("Status", value: detail.summary.statusLabel)
                     if let date = detail.summary.activity.startsAt { LabeledContent("Datum", value: date.formatted(.dateTime.day().month().year().hour().minute())) }
                     if let committee = detail.summary.committeeName { LabeledContent("Commissie", value: committee) }
-                    HStack { AdminCount(title: "Bevestigd", value: detail.summary.confirmedCount); Spacer(); AdminCount(title: "Openstaand", value: detail.summary.pendingCount); Spacer(); AdminCount(title: "Aanwezig", value: detail.summary.checkedInCount) }.padding(.vertical, 8)
+                    HStack { AdminCount(title: "Aangemeld", value: detail.summary.confirmedCount); Spacer(); AdminCount(title: "Openstaand", value: detail.summary.pendingCount); Spacer(); AdminCount(title: "Aanwezig", value: detail.summary.checkedInCount) }.padding(.vertical, 8)
                 }
                 Section("Deelnemers") {
                     if detail.summary.canCheckIn {
@@ -299,7 +299,7 @@ private struct ActivityAdminRegistrationsView: View {
             if let data {
                 Section {
                     Text(data.activity.activity.title).font(.headline)
-                    HStack { AdminCount(title: "Bevestigd", value: data.activity.confirmedCount); Spacer(); AdminCount(title: "Openstaand", value: data.activity.pendingCount); Spacer(); AdminCount(title: "Aanwezig", value: data.activity.checkedInCount) }
+                    HStack { AdminCount(title: "Aangemeld", value: data.activity.confirmedCount); Spacer(); AdminCount(title: "Openstaand", value: data.activity.pendingCount); Spacer(); AdminCount(title: "Aanwezig", value: data.activity.checkedInCount) }
                     Picker("Betaling", selection: $payment) { Text("Iedereen").tag("all"); Text("Betaald").tag("paid"); Text("Niet betaald").tag("unpaid") }.pickerStyle(.segmented)
                     Picker("Lidmaatschap", selection: $membership) { Text("Iedereen").tag("all"); Text("Leden").tag("members"); Text("Gasten").tag("guests") }.pickerStyle(.segmented)
                 }
