@@ -44,7 +44,10 @@ private struct ActivityAdminListView: View {
         (model.adminCollection?.activities ?? []).filter {
             let time = $0.activity.endsAt ?? $0.activity.startsAt ?? .distantFuture
             return (search.isEmpty || $0.activity.title.localizedCaseInsensitiveContains(search) || ($0.activity.location?.localizedCaseInsensitiveContains(search) ?? false)) && (committeeID == nil || $0.committeeID == committeeID) && (period == "all" || (period == "upcoming" ? time >= .now : time < .now))
-        }.sorted { ($0.activity.startsAt ?? .distantFuture) < ($1.activity.startsAt ?? .distantFuture) }
+        }.sorted {
+            if period == "upcoming" { return ($0.activity.startsAt ?? .distantFuture) < ($1.activity.startsAt ?? .distantFuture) }
+            return ($0.activity.startsAt ?? .distantPast) > ($1.activity.startsAt ?? .distantPast)
+        }
     }
     var body: some View {
         List {
@@ -205,7 +208,7 @@ private struct ActivityAdminEditor: View {
             Section {
                 if let data = photoData, let image = UIImage(data: data) { Image(uiImage: image).resizable().scaledToFit().frame(maxHeight: 160) }
                 else if photoData != nil { Label("Video geselecteerd voor upload", systemImage: "video.fill") }
-                else if let imageURL = detail?.summary.activity.imageURL, form.removeImage != true { AsyncImage(url: imageURL) { $0.resizable().scaledToFit() } placeholder: { ProgressView() }.frame(maxHeight: 160) }
+                else if let imageURL = detail?.summary.activity.imageURL, form.removeImage != true { ActivityBanner(url: imageURL, fit: true).frame(maxHeight: 160) }
                 PhotosPicker(selection: $selectedPhoto, matching: .any(of: [.images, .videos])) { Label("Kies een foto of video", systemImage: "photo") }
                 if photoData != nil || detail?.summary.activity.imageURL != nil { Button("Afbeelding verwijderen", role: .destructive) { photoData = nil; selectedPhoto = nil; form.removeImage = true } }
             } header: { Text("Afbeelding of video") } footer: { Text("De activiteit wordt eerst opgeslagen; daarna wordt je gekozen foto geüpload. Bij een uploadfout kun je de foto opnieuw proberen zonder een dubbele activiteit te maken.") }

@@ -1,4 +1,6 @@
 import SwiftUI
+import ImageIO
+import UIKit
 
 extension Color {
     init(hex: UInt32) { self.init(.sRGB, red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1) }
@@ -53,7 +55,7 @@ struct ActivityCard: View {
             ZStack(alignment: .bottomLeading) {
                 LinearGradient(colors: [Brand.purple, Brand.deepPurple], startPoint: .topLeading, endPoint: .bottomTrailing)
                 if let url = activity.imageURL {
-                    AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.clear }
+                    ActivityBanner(url: url)
                     LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
                 } else {
                     Image(systemName: activity.kind == "pub_crawl" ? "sparkles" : "calendar")
@@ -81,4 +83,69 @@ struct ActivityCard: View {
         .overlay(RoundedRectangle(cornerRadius: 24).stroke(.primary.opacity(0.04), lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 24))
     }
+}
+
+// UIImageView animates GIF frames; AsyncImage only displays their first frame.
+struct ActivityBanner: View {
+    let url: URL
+    var fit = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var image: UIImage?
+    var body: some View {
+        AnimatedBannerImage(image: image, fit: fit, animate: !reduceMotion)
+            .accessibilityHidden(true)
+            .task(id: url) {
+                image = nil
+                do {
+                    let (data, response) = try await URLSession.shared.data(from: url)
+                    guard !Task.isCancelled, (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 20_000_000 else { return }
+                    let decoded = await Task.detached(priority: .utility) { Self.decode(data) }.value
+                    guard !Task.isCancelled else { return }
+                    image = decoded
+                } catch { /* Keep the card's gradient when the image is unavailable. */ }
+            }
+    }
+    nonisolated private static func decode(_ data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let count = CGImageSourceGetCount(source)
+        guard count > 0 else { return nil }
+        // Bound decoded memory, including long animated banners.
+        let frameCount = min(count, 200)
+        let dimension = min(900, Int(sqrt(12_000_000.0 / Double(frameCount))))
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: dimension, kCGImageSourceCreateThumbnailWithTransform: true]
+        var frames: [UIImage] = []
+        var duration = 0.0
+        for i in 0..<frameCount {
+            guard let cg = CGImageSourceCreateThumbnailAtIndex(source, i, options as CFDictionary) else { continue }
+            let frame = UIImage(cgImage: cg)
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, i, nil) as? [CFString: Any]
+            let gif = properties?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+            let delay = (gif?[kCGImagePropertyGIFUnclampedDelayTime] as? Double) ?? (gif?[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
+            let ticks = min(100, max(2, Int((delay * 50).rounded())))
+            frames.append(contentsOf: repeatElement(frame, count: ticks))
+            duration += Double(ticks) / 50
+        }
+        guard let first = frames.first else { return nil }
+        return count == 1 ? first : UIImage.animatedImage(with: frames, duration: duration)
+    }
+}
+
+private struct AnimatedBannerImage: UIViewRepresentable {
+    let image: UIImage?
+    let fit: Bool
+    let animate: Bool
+    func makeUIView(context: Context) -> UIImageView {
+        let view = UIImageView()
+        view.clipsToBounds = true
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        return view
+    }
+    func updateUIView(_ view: UIImageView, context: Context) {
+        view.contentMode = fit ? .scaleAspectFit : .scaleAspectFill
+        view.image = animate ? image : (image?.images?.first ?? image)
+    }
+    static func dismantleUIView(_ view: UIImageView, coordinator: ()) { view.stopAnimating(); view.image = nil }
 }

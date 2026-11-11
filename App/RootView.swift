@@ -116,7 +116,7 @@ struct ActivitiesView: View {
     @Environment(AppModel.self) private var model
     @State private var search = ""
     @State private var upcomingOnly = true
-    private var visible: [Activity] { (upcomingOnly ? model.upcoming : model.activities).filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || ($0.location?.localizedCaseInsensitiveContains(search) ?? false) } }
+    private var visible: [Activity] { (upcomingOnly ? model.upcoming : model.activities.sorted { ($0.startsAt ?? .distantPast) > ($1.startsAt ?? .distantPast) }).filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || ($0.location?.localizedCaseInsensitiveContains(search) ?? false) } }
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
