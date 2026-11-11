@@ -56,7 +56,7 @@ private struct ActivityAdminListView: View {
         List {
             if let error { AdminErrorRow(message: error, retry: { Task { await load() } }) }
             Section {
-                Button { showScannerPicker = true } label: { Label("Tickets scannen", systemImage: "qrcode.viewfinder").font(.headline).padding(.vertical, 6) }
+                Button { showScannerPicker = true } label: { Label("Deurmodus · scannen en aanwezigheid", systemImage: "qrcode.viewfinder").font(.headline).padding(.vertical, 6) }
             }
             Section {
                 Picker("Periode", selection: $period) { Text("Binnenkort").tag("upcoming"); Text("Voorbij").tag("past"); Text("Alles").tag("all") }.pickerStyle(.segmented)
@@ -136,7 +136,7 @@ private struct ActivityAdminDetailView: View {
                 }
                 Section("Deelnemers") {
                     if detail.summary.canCheckIn {
-                        NavigationLink { ActivityAdminScannerSheet(activityID: activityID) } label: { Label("Tickets scannen", systemImage: "qrcode.viewfinder") }
+                        NavigationLink { ActivityAdminScannerSheet(activityID: activityID) } label: { Label("Deurmodus · scannen en aanwezigheid", systemImage: "qrcode.viewfinder") }
                     }
                     NavigationLink { ActivityAdminRegistrationsView(activityID: activityID) } label: { Label("Aanmeldingen en aanwezigheid", systemImage: "person.2") }
                 }
@@ -571,7 +571,7 @@ struct ActivityAdminScannerPicker: View {
                 }
             } else { EmptyState(icon: "lock.shield", title: "Geen toegang", message: "Je hebt geen toegang tot tickets scannen.") }
         }
-        .navigationTitle("Tickets scannen").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Deurmodus").navigationBarTitleDisplayMode(.inline)
         .searchable(text: $search, prompt: "Zoek een activiteit")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } } }
         .task { await load() }

@@ -1,5 +1,6 @@
 import SwiftUI
 import WidgetKit
+import ActivityKit
 
 private struct SalveEntry: TimelineEntry {
     let date: Date
@@ -191,5 +192,43 @@ struct AdminActivitySignupsWidget: Widget {
 
 @main
 struct SalveMundiWidgets: WidgetBundle {
-    var body: some Widget { UpcomingActivitiesWidget(); NextBookedEventWidget(); AdminActivitySignupsWidget() }
+    var body: some Widget { UpcomingActivitiesWidget(); NextBookedEventWidget(); AdminActivitySignupsWidget(); SalveEventLiveActivity() }
+}
+
+private struct SalveEventLiveActivity: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: SalveEventActivityAttributes.self) { context in
+            VStack(alignment: .leading, spacing: 8) {
+                if context.isStale || context.state.event.expiresAt <= .now {
+                    Label("Open de app om je activiteit te controleren", systemImage: "clock").font(.headline)
+                } else {
+                    HStack { Text("SALVE MUNDI").font(.caption.bold()); Spacer(); Image(systemName: "ticket.fill") }.foregroundStyle(.yellow)
+                    Text(context.state.event.title).font(.headline).lineLimit(2)
+                    Label(context.state.event.startsAt.formatted(.dateTime.hour().minute()), systemImage: "clock")
+                    if let location = context.state.event.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").lineLimit(1) }
+                    if let url = context.state.event.deepLink { Link("Open mijn ticket", destination: url).font(.subheadline.bold()).foregroundStyle(.yellow) }
+                }
+            }.padding(16).activityBackgroundTint(Color(red: 0.20, green: 0.13, blue: 0.24)).activitySystemActionForegroundColor(.white).foregroundStyle(.white)
+            .widgetURL(context.state.event.deepLink)
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) { Image(systemName: "ticket.fill").foregroundStyle(.yellow) }
+                DynamicIslandExpandedRegion(.trailing) { Text(context.state.event.startsAt.formatted(.dateTime.hour().minute())).font(.headline) }
+                DynamicIslandExpandedRegion(.bottom) {
+                    if context.isStale || context.state.event.expiresAt <= .now { Text("Open de app om je activiteit te controleren") }
+                    else {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(context.state.event.title).font(.headline).lineLimit(1)
+                            if let location = context.state.event.location { Text(location).font(.caption).lineLimit(1) }
+                            if let url = context.state.event.deepLink { Link("Open mijn ticket", destination: url).foregroundStyle(.yellow) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } compactLeading: { Image(systemName: "ticket.fill").foregroundStyle(.yellow) }
+            compactTrailing: { Text(context.isStale ? "—" : context.state.event.startsAt.formatted(.dateTime.hour().minute())).font(.caption) }
+            minimal: { Image(systemName: context.isStale ? "clock" : "ticket.fill").foregroundStyle(.yellow) }
+            .widgetURL(context.state.event.deepLink)
+            .keylineTint(.yellow)
+        }
+    }
 }

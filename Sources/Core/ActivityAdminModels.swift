@@ -158,3 +158,15 @@ public struct AdminScanGate: Sendable {
         return true
     }
 }
+
+/// Door totals use only server-confirmed registrations, not unpaid reservations.
+public struct AdminDoorTotals: Equatable, Sendable {
+    public let expected: Int
+    public let present: Int
+    public var remaining: Int { max(0, expected - present) }
+    public init(registrations: [AdminRegistration]) {
+        let confirmed = registrations.filter(\.isPaid)
+        expected = confirmed.count
+        present = confirmed.filter(\.checkedIn).count
+    }
+}

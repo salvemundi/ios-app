@@ -96,16 +96,9 @@ struct HomeView: View {
                 }
                 .padding(24).frame(maxWidth: .infinity, alignment: .leading)
                 .background(LinearGradient(colors: [Brand.purple, Brand.deepPurple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 28))
-                if model.signedIn {
-                    HStack {
-                        SectionHeading(title: "Jouw tickets")
-                        Button("Bekijk alles") { model.selectedTab = .tickets }
-                            .font(.subheadline.weight(.semibold)).fixedSize()
-                            .accessibilityLabel("Bekijk al mijn tickets")
-                    }
-                }
+
                 VStack(spacing: 16) {
-                    HStack { SectionHeading(title: "Binnenkort"); Button("Alles") { model.selectedTab = .activities }.font(.subheadline.weight(.semibold)) }
+                    HStack { SectionHeading(title: "Komende activiteiten"); Button("Alles") { model.selectedTab = .activities }.font(.subheadline.weight(.semibold)) }
                     if model.isLoading && model.activities.isEmpty { ProgressView().padding(30) }
                     else if model.backendUnavailableMessage != nil && model.activities.isEmpty { EmptyState(icon: "calendar.badge.exclamationmark", title: "Agenda tijdelijk niet beschikbaar", message: "Je kunt opnieuw laden zodra de appverbinding actief is.") }
                     else if model.upcoming.isEmpty { EmptyState(icon: "calendar.badge.clock", title: "Even rustig op de agenda", message: "Nieuwe activiteiten verschijnen hier zodra ze bekend zijn.") }

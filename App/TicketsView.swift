@@ -62,6 +62,8 @@ struct TicketDetailView: View {
     let ticket: Ticket
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @State private var startingLiveEvent = false
+    @State private var liveEventError: String?
     private var current: Ticket { model.tickets.first(where: { $0.id == ticket.id }) ?? ticket }
     var body: some View {
         ScrollView {
@@ -80,6 +82,28 @@ struct TicketDetailView: View {
                         Label("Persoonlijk ticket · deel je QR-code niet", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
                     }
                 } else { EmptyState(icon: "clock", title: current.statusLabel, message: "Een geldige QR-code verschijnt nadat je inschrijving en eventuele betaling zijn bevestigd.") }
+                if model.signedIn, current.isValid, model.tickets.contains(where: { $0.id == current.id }), current.kind == "event", !model.ticketIsPast(current) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Live evenementkaart").font(.headline)
+                        Text("Tijd, locatie en je ticket op het vergrendelscherm en in de Dynamic Island. De titel en locatie zijn daar zichtbaar.").font(.subheadline).foregroundStyle(.secondary)
+                        if LiveEventController.shared.activeTicketID == current.id {
+                            Button("Evenementkaart stoppen") { Task { await LiveEventController.shared.stop() } }.buttonStyle(.bordered)
+                        } else {
+                            Button {
+                                startingLiveEvent = true; liveEventError = nil
+                                Task {
+                                    defer { startingLiveEvent = false }
+                                    do { try await model.startLiveEvent(ticketID: current.id) }
+                                    catch is CancellationError { }
+                                    catch { liveEventError = (error as? APIProblem)?.message ?? "De evenementkaart kon niet starten. Controleer Live activiteiten in de iPhone-instellingen en probeer opnieuw." }
+                                }
+                            } label: { HStack { if startingLiveEvent { ProgressView() }; Text("Start evenementkaart") } }
+                                .buttonStyle(.borderedProminent).disabled(startingLiveEvent || model.isOffline)
+                        }
+                        if let liveEventError { Text(liveEventError).font(.footnote).foregroundStyle(.red) }
+                        Text("Beschikbaar vanaf vier uur vooraf. Wijzigingen worden bijgewerkt wanneer je de app opent; er worden geen externe live-updates gebruikt.").font(.caption).foregroundStyle(.secondary)
+                    }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(Brand.card, in: RoundedRectangle(cornerRadius: 20))
+                }
                 if model.isOffline { Label("Offline ticket · status kan gewijzigd zijn", systemImage: "wifi.slash").font(.caption).foregroundStyle(.secondary) }
             }.padding(20)
         }.background(Brand.background).navigationTitle("Ticket").navigationBarTitleDisplayMode(.inline)

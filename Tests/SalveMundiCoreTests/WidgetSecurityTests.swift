@@ -45,3 +45,19 @@ struct WidgetSecurityTests {
         #expect(activity.deepLink?.absoluteString == "salvemundi://admin/activities/event:12")
     }
 }
+
+@Test func liveEventCardLimitsTimeAndContainsNoTicketSecrets() throws {
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    let event = Activity(id: "event:42", title: "Borrel", description: nil, startsAt: now.addingTimeInterval(3600), endsAt: now.addingTimeInterval(7200), location: "Fontys", imageURL: nil, memberPriceCents: 0, guestPriceCents: 0, membersOnly: true, registrationDeadline: nil, capacity: nil, signupCount: nil, kind: "event", registrationViaWebsite: false, websiteURL: URL(string: "https://acc.salvemundi.nl/activiteiten/42")!)
+    let ticket = Ticket(id: "event:12", title: "Borrel", startsAt: event.startsAt, location: "Fontys", qrToken: "NEVER-SHARE-THIS-SECRET", status: "paid", kind: "event", activityID: event.id)
+    let value = try #require(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now))
+    #expect(value.expiresAt == event.endsAt)
+    #expect(DeepLink(url: try #require(value.deepLink)) == .ticket(ticket.id))
+    let data = try JSONCoding.encoder().encode(value)
+    #expect(!String(decoding: data, as: UTF8.self).contains("NEVER-SHARE"))
+    #expect(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now.addingTimeInterval(-5 * 3600)) == nil)
+    #expect(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now.addingTimeInterval(7200)) == nil)
+    #expect(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now, expiresNoLaterThan: now) == nil)
+    let unpaid = Ticket(id: ticket.id, title: ticket.title, startsAt: ticket.startsAt, location: ticket.location, qrToken: nil, status: "open", kind: "event", activityID: event.id)
+    #expect(EventLiveSnapshot.make(ticket: unpaid, activity: event, at: now) == nil)
+}

@@ -66,3 +66,14 @@ struct ActivityAdminTests {
     let accepted7 = gate.accept("", enabled: true, at: start.addingTimeInterval(8))
     #expect(accepted7 == false)
 }
+
+@Test func doorTotalsExcludeUnpaidAndPreventNegativeRemaining() {
+    func registration(_ id: String, paid: Bool, present: Bool) -> AdminRegistration {
+        AdminRegistration(id: id, name: "Test", email: "test@example.test", phone: nil, status: paid ? "paid" : "open", amountPaidCents: nil, createdAt: nil, checkedIn: present, isMember: true)
+    }
+    let totals = AdminDoorTotals(registrations: [registration("1", paid: true, present: true), registration("2", paid: true, present: false), registration("3", paid: false, present: true)])
+    #expect(totals.expected == 2)
+    #expect(totals.present == 1)
+    #expect(totals.remaining == 1)
+    #expect(AdminDoorTotals(registrations: []).remaining == 0)
+}

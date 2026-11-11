@@ -1,4 +1,6 @@
 import AuthenticationServices
+import ActivityKit
+import Observation
 import CryptoKit
 import Foundation
 import Security
@@ -140,6 +142,68 @@ enum NotificationAuthorization {
             UNUserNotificationCenter.current().getNotificationSettings { settings in
                 continuation.resume(returning: settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional)
             }
+        }
+    }
+}
+
+@MainActor @Observable
+final class LiveEventController {
+    static let shared = LiveEventController()
+    private(set) var activeTicketID: String?
+    private var revision: UInt64 = 0
+    private var starting = false
+    var available: Bool { ActivityAuthorizationInfo().areActivitiesEnabled }
+    func clear() {
+        revision &+= 1
+        activeTicketID = nil
+        Task { await Self.endAll() }
+    }
+    nonisolated private static func endAll() async {
+        for activity in ActivityKit.Activity<SalveEventActivityAttributes>.activities { await activity.end(nil, dismissalPolicy: .immediate) }
+    }
+    nonisolated private static func end(id: String) async {
+        if let activity = ActivityKit.Activity<SalveEventActivityAttributes>.activities.first(where: { $0.id == id }) { await activity.end(nil, dismissalPolicy: .immediate) }
+    }
+    nonisolated private static func update(id: String, state: SalveEventActivityAttributes.ContentState, staleDate: Date) async {
+        if let activity = ActivityKit.Activity<SalveEventActivityAttributes>.activities.first(where: { $0.id == id }) { await activity.update(ActivityContent(state: state, staleDate: staleDate)) }
+    }
+    func stop() async {
+        revision &+= 1
+        activeTicketID = nil
+        await Self.endAll()
+    }
+    func start(_ snapshot: EventLiveSnapshot, sessionExpiry: Date, authorized: @MainActor () -> Bool) async throws {
+        guard !starting else { throw APIProblem(code: "live_busy", message: "De evenementkaart wordt nog gestart. Probeer het opnieuw.") }
+        starting = true
+        defer { starting = false }
+        let currentRevision = revision
+        activeTicketID = nil
+        guard available else { throw APIProblem(code: "live_disabled", message: "Live activiteiten staan uit. Schakel ze in bij de iPhone-instellingen van deze app.") }
+        await Self.endAll()
+        guard revision == currentRevision, authorized(), sessionExpiry > .now else { throw CancellationError() }
+        let deadline = min(snapshot.expiresAt, sessionExpiry)
+        _ = try ActivityKit.Activity.request(attributes: SalveEventActivityAttributes(ticketID: snapshot.ticketID), content: ActivityContent(state: .init(event: snapshot), staleDate: deadline), pushType: nil)
+        activeTicketID = snapshot.ticketID
+    }
+    func refresh(tickets: [Ticket], activities: [Activity], sessionExpiry: Date) async {
+        let currentRevision = revision
+        let existing = ActivityKit.Activity<SalveEventActivityAttributes>.activities
+            .filter { $0.activityState == .active || $0.activityState == .stale }
+            .map { (id: $0.id, ticketID: $0.attributes.ticketID, expiresAt: $0.content.state.event.expiresAt) }
+        if !existing.contains(where: { $0.ticketID == activeTicketID }) { activeTicketID = nil }
+        for item in existing {
+            let ticketID = item.ticketID
+            guard revision == currentRevision else { return }
+            guard let ticket = tickets.first(where: { $0.id == ticketID }),
+                  let activity = activities.first(where: { $0.id == ticket.activityID }),
+                  let value = EventLiveSnapshot.make(ticket: ticket, activity: activity, expiresNoLaterThan: min(item.expiresAt, sessionExpiry)) else {
+                await Self.end(id: item.id)
+                if activeTicketID == ticketID { activeTicketID = nil }
+                continue
+            }
+            await Self.update(id: item.id, state: .init(event: value), staleDate: value.expiresAt)
+            guard revision == currentRevision else { return }
+            activeTicketID = ticketID
         }
     }
 }

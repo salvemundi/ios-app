@@ -182,3 +182,39 @@ public enum AdminWidgetRefresh {
         } catch { return AdminWidgetCredentialStore.read()?.token == credential.token ? AdminWidgetSnapshotStore.read() : nil }
     }
 }
+
+/// Public display content only. No QR value, member identity or session secret.
+public struct EventLiveSnapshot: Codable, Hashable, Sendable {
+    public let ticketID: String
+    public let title: String
+    public let location: String?
+    public let startsAt: Date
+    public let expiresAt: Date
+    public var deepLink: URL? {
+        guard !ticketID.isEmpty, ticketID.count <= 128,
+              ticketID.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || ":_-".contains($0)) }) else { return nil }
+        var url = URLComponents(); url.scheme = "salvemundi"; url.host = "tickets"; url.path = "/" + ticketID
+        return url.url
+    }
+    public static func make(ticket: Ticket, activity: Activity, at now: Date = .now, expiresNoLaterThan limit: Date? = nil) -> EventLiveSnapshot? {
+        guard ticket.isValid, ticket.kind == "event", ticket.activityID == activity.id,
+              let start = activity.startsAt, start <= now.addingTimeInterval(4 * 3600) else { return nil }
+        let end = activity.endsAt ?? start.addingTimeInterval(3 * 3600)
+        let expiry = min(end, limit ?? now.addingTimeInterval(8 * 3600))
+        guard end > start, expiry > now else { return nil }
+        let value = EventLiveSnapshot(ticketID: ticket.id, title: String(activity.title.prefix(120)), location: activity.location.map { String($0.prefix(100)) }, startsAt: start, expiresAt: expiry)
+        return value.deepLink == nil ? nil : value
+    }
+}
+
+#if canImport(ActivityKit) && os(iOS)
+import ActivityKit
+public struct SalveEventActivityAttributes: ActivityAttributes {
+    public struct ContentState: Codable, Hashable, Sendable {
+        public let event: EventLiveSnapshot
+        public init(event: EventLiveSnapshot) { self.event = event }
+    }
+    public let ticketID: String
+    public init(ticketID: String) { self.ticketID = ticketID }
+}
+#endif
