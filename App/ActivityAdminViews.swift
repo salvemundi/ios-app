@@ -77,7 +77,7 @@ private struct ActivityAdminListView: View {
                             HStack { Text(item.activity.title).font(.headline); Spacer(); Text(item.statusLabel).font(.caption).foregroundStyle(item.status == "draft" ? .secondary : Brand.purple) }
                             if let date = item.activity.startsAt { Text(date.formatted(.dateTime.day().month().year().hour().minute())).font(.caption).foregroundStyle(.secondary) }
                             if let committee = item.committeeName { Text(committee).font(.caption).foregroundStyle(.secondary) }
-                            HStack(spacing: 16) { Label("\(item.confirmedCount) bevestigd", systemImage: "person.2"); Label("\(item.pendingCount) open", systemImage: "clock"); Label("\(item.checkedInCount)", systemImage: "checkmark.circle") }.font(.caption2).foregroundStyle(.secondary)
+                            HStack(spacing: 16) { Label("\(item.confirmedCount) bevestigd", systemImage: "person.2"); Label(item.activity.capacity.map { "\(max(0, $0 - item.confirmedCount - item.pendingCount)) plekken vrij" } ?? "Geen limiet", systemImage: "person.badge.plus"); Label("\(item.checkedInCount)", systemImage: "checkmark.circle") }.font(.caption2).foregroundStyle(.secondary)
                         }.padding(.vertical, 6)
                     }
                 }
