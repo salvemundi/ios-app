@@ -177,7 +177,7 @@
     },
     "/me/tickets": {
       "get": {
-        "summary": "List the current member’s tickets",
+        "summary": "List the current member\u2019s tickets",
         "security": [
           {
             "AppSession": []
@@ -500,7 +500,7 @@
     },
     "/devices/{token}": {
       "delete": {
-        "summary": "Remove this member’s APNs device registration",
+        "summary": "Remove this member\u2019s APNs device registration",
         "security": [
           {
             "AppSession": []
@@ -1938,6 +1938,24 @@
           }
         }
       }
+    },
+    "/notification-preferences/options": {
+      "get": {
+        "summary": "Read committees and current organizer notification permissions",
+        "security": [
+          {
+            "AppSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Envelope with committees, organizerCommittees and canReceiveOrganizerAlerts"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2130,6 +2148,38 @@
           },
           "reminders": {
             "type": "boolean"
+          },
+          "activityAnnouncements": {
+            "type": "boolean",
+            "default": false
+          },
+          "activityCommitteeIDs": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxItems": 100,
+            "description": "Empty means all committees"
+          },
+          "organizerAlmostFull": {
+            "type": "boolean",
+            "default": false
+          },
+          "organizerCapacityPercent": {
+            "type": "integer",
+            "minimum": 50,
+            "maximum": 100,
+            "default": 90
+          },
+          "organizerSignupThresholds": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "maxItems": 10
           }
         }
       },
