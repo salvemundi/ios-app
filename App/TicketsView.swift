@@ -68,8 +68,34 @@ struct TicketDetailView: View {
         .privacySensitive()
     }
     private func qrImage(_ token: String) -> UIImage? {
-        let filter = CIFilter.qrCodeGenerator(); filter.message = Data(token.utf8); filter.correctionLevel = "M"
-        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 10, y: 10)), let image = CIContext().createCGImage(output, from: output.extent) else { return nil }
-        return UIImage(cgImage: image)
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(token.utf8)
+        filter.correctionLevel = "H"
+        guard let output = filter.outputImage else { return nil }
+        let margin: CGFloat = 4
+        let extent = output.extent.insetBy(dx: -margin, dy: -margin)
+        let white = CIImage(color: CIColor.white).cropped(to: extent)
+        let bordered = output.composited(over: white).transformed(by: CGAffineTransform(scaleX: 10, y: 10))
+        guard let cg = CIContext().createCGImage(bordered, from: bordered.extent) else { return nil }
+        let plain = UIImage(cgImage: cg)
+        guard let logo = UIImage(named: "QRLogo"), let logoCG = logo.cgImage,
+              let owl = logoCG.cropping(to: CGRect(x: 0, y: 0, width: logoCG.width, height: Int(Double(logoCG.height) * 0.74))) else { return plain }
+        // Reuse the website's owl artwork. Keep payloads on-device and check the
+        // final composed image rather than assuming error correction is sufficient.
+        let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: CIContext(), options: [CIDetectorAccuracy: CIDetectorAccuracyHigh])
+        for fraction in [0.22, 0.18, 0.14] {
+            let format = UIGraphicsImageRendererFormat(); format.scale = 1
+            let result = UIGraphicsImageRenderer(size: plain.size, format: format).image { context in
+                plain.draw(at: .zero)
+                let width = plain.size.width * fraction
+                let height = width * CGFloat(owl.height) / CGFloat(owl.width)
+                let rect = CGRect(x: (plain.size.width - width) / 2, y: (plain.size.height - height) / 2, width: width, height: height)
+                UIColor.white.setFill()
+                context.fill(rect.insetBy(dx: -5, dy: -5))
+                UIImage(cgImage: owl).draw(in: rect)
+            }
+            if let image = CIImage(image: result), detector?.features(in: image).contains(where: { ($0 as? CIQRCodeFeature)?.messageString == token }) == true { return result }
+        }
+        return plain
     }
 }

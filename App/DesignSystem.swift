@@ -48,8 +48,14 @@ struct EmptyState: View {
 }
 
 struct ActivityCard: View {
+    @Environment(AppModel.self) private var model
     let activity: Activity
     var featured = false
+    private var registrationTicket: Ticket? {
+        guard model.signedIn else { return nil }
+        let matching = model.tickets.filter { $0.activityID == activity.id }
+        return matching.first(where: { $0.isValid }) ?? matching.first(where: { ["open", "pending"].contains($0.status.lowercased()) })
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .bottomLeading) {
@@ -71,6 +77,12 @@ struct ActivityCard: View {
             .frame(height: featured ? 185 : 145).clipped()
             .saturation(activity.isPast() ? 0 : 1)
             VStack(alignment: .leading, spacing: 10) {
+                if let ticket = registrationTicket {
+                    Label(ticket.isValid ? "Aangemeld" : "Betaling in behandeling", systemImage: ticket.isValid ? "checkmark.circle.fill" : "clock")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(ticket.isValid ? Color.green : Color.orange)
+                    if model.isOffline { Text("Status bij laatste verbinding").font(.caption2).foregroundStyle(.secondary) }
+                }
                 Text(activity.title).font(featured ? .title3.bold() : .headline).foregroundStyle(.primary).lineLimit(2)
                 HStack(spacing: 12) {
                     if let date = activity.startsAt { Label(date.formatted(.dateTime.hour().minute()), systemImage: "clock") }
