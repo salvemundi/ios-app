@@ -6,6 +6,15 @@ import Testing
 @testable import SalveMundiCore
 
 struct CoreTests {
+    @Test func pastActivitiesCloseRegistrationAndRespectEndDate() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for (start, end, past) in [(-100.0, Optional(-1.0), true), (-100.0, Optional(100.0), false), (-1.0, nil, true), (100.0, nil, false)] {
+            let activity = Activity(id: "event:1", title: "Test", description: nil, startsAt: now.addingTimeInterval(start), endsAt: end.map { now.addingTimeInterval($0) }, location: nil, imageURL: nil, memberPriceCents: 0, guestPriceCents: 0, membersOnly: false, registrationDeadline: nil, capacity: nil, signupCount: nil, kind: "event", registrationViaWebsite: false, websiteURL: URL(string: "https://acc.salvemundi.nl/activiteiten/1")!)
+            #expect(activity.isPast(at: now) == past)
+            #expect(activity.registrationClosed(at: now) == past)
+        }
+    }
+
     @Test func dateFormatsAndActivityAvailability() throws {
         let json = """
         {"id":"event:12","title":"Borrel","startsAt":"2027-01-10T12:00:00.123Z","memberPriceCents":0,"guestPriceCents":250,"membersOnly":true,"registrationDeadline":"2027-01-09T12:00:00Z","capacity":20,"signupCount":20,"kind":"event","websiteURL":"https://acc.salvemundi.nl/activiteiten/12"}

@@ -18,9 +18,12 @@ public struct Activity: Codable, Identifiable, Hashable, Sendable {
     public let registrationViaWebsite: Bool?
     public let websiteURL: URL
 
+    public func isPast(at date: Date = .now) -> Bool {
+        (endsAt ?? startsAt).map { $0 <= date } ?? false
+    }
     public var isFull: Bool { capacity.map { (signupCount ?? 0) >= $0 } ?? false }
     public func registrationClosed(at date: Date = .now) -> Bool {
-        isFull || (registrationDeadline.map { $0 <= date } ?? false)
+        isPast(at: date) || isFull || (registrationDeadline.map { $0 <= date } ?? false)
     }
     public var price: String {
         memberPriceCents == 0 ? "Gratis" : (Decimal(memberPriceCents) / 100).formatted(.currency(code: "EUR"))

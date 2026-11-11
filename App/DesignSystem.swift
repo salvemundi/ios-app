@@ -69,6 +69,7 @@ struct ActivityCard: View {
                 }.padding(16)
             }
             .frame(height: featured ? 185 : 145).clipped()
+            .saturation(activity.isPast() ? 0 : 1)
             VStack(alignment: .leading, spacing: 10) {
                 Text(activity.title).font(featured ? .title3.bold() : .headline).foregroundStyle(.primary).lineLimit(2)
                 HStack(spacing: 12) {

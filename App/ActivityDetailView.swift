@@ -45,6 +45,8 @@ struct ActivityDetailView: View {
             VStack(spacing: 8) {
                 if ticket != nil {
                     Button { dismiss(); model.selectedTab = .tickets } label: { Label("Bekijk mijn ticket", systemImage: "qrcode") }.buttonStyle(PrimaryButtonStyle())
+                } else if current.isPast() {
+                    Button("Activiteit afgelopen") {}.buttonStyle(PrimaryButtonStyle()).disabled(true)
                 } else if current.kind != "event" || current.registrationViaWebsite == true {
                     Link(destination: current.websiteURL) { Label("Aanmelden op de website", systemImage: "arrow.up.right.square") }.buttonStyle(PrimaryButtonStyle())
                 } else {

@@ -175,6 +175,7 @@ final class AppModel {
     }
 
     func register(for activity: Activity) async {
+        guard !activity.registrationClosed() else { notice = "Aanmelden voor deze activiteit is gesloten."; return }
         guard !isDemo else { notice = "Dit is een demonstratie. Er wordt geen echte inschrijving gemaakt."; return }
         guard signedIn, let token = session?.token else { await signIn(); return }
         guard registrationInProgress == nil else { return }

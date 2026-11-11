@@ -78,7 +78,7 @@ struct HomeView: View {
                 .background(LinearGradient(colors: [Brand.purple, Brand.deepPurple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 28))
                 if let ticket = model.nextTicket {
                     VStack(alignment: .leading, spacing: 14) {
-                        SectionHeading(title: "Jij bent erbij")
+                        SectionHeading(title: "Jou tickets")
                         Button { model.selectedTicket = ticket } label: {
                             HStack(spacing: 16) {
                                 Image(systemName: "ticket.fill").font(.title).foregroundStyle(Brand.purple)
@@ -116,7 +116,15 @@ struct ActivitiesView: View {
     @Environment(AppModel.self) private var model
     @State private var search = ""
     @State private var upcomingOnly = true
-    private var visible: [Activity] { (upcomingOnly ? model.upcoming : model.activities.sorted { ($0.startsAt ?? .distantPast) > ($1.startsAt ?? .distantPast) }).filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || ($0.location?.localizedCaseInsensitiveContains(search) ?? false) } }
+    private var visible: [Activity] {
+        let matching = model.activities.filter {
+            (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || ($0.location?.localizedCaseInsensitiveContains(search) ?? false)) && (!upcomingOnly || !$0.isPast())
+        }
+        return matching.sorted {
+            if upcomingOnly { return ($0.startsAt ?? .distantFuture) < ($1.startsAt ?? .distantFuture) }
+            return ($0.startsAt ?? .distantPast) > ($1.startsAt ?? .distantPast)
+        }
+    }
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
@@ -126,7 +134,7 @@ struct ActivitiesView: View {
                 else if visible.isEmpty { EmptyState(icon: "magnifyingglass", title: search.isEmpty ? "Nog geen activiteiten" : "Niets gevonden", message: "Probeer later opnieuw of pas je zoekopdracht aan.") }
                 else { ForEach(visible) { activity in Button { model.selectedActivity = activity } label: { ActivityCard(activity: activity) }.buttonStyle(.plain) } }
             }.padding(20)
-        }.background(Brand.background).navigationTitle("Activiteiten")
+        }.id(upcomingOnly).background(Brand.background).navigationTitle("Activiteiten")
         .searchable(text: $search, prompt: "Zoek een activiteit")
         .refreshable { await model.refresh() }
     }
