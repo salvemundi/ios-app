@@ -52,7 +52,7 @@ final class AppModel {
 
     var signedIn: Bool { session != nil && !(session?.isExpired ?? true) }
     var upcoming: [Activity] { activities.filter { ($0.startsAt ?? .distantFuture) >= .now }.sorted { ($0.startsAt ?? .distantFuture) < ($1.startsAt ?? .distantFuture) } }
-    var nextTicket: Ticket? { guard signedIn else { return nil }; return tickets.filter { $0.isValid && ($0.startsAt ?? .distantPast) >= .now }.sorted { ($0.startsAt ?? .distantFuture) < ($1.startsAt ?? .distantFuture) }.first }
+    var nextTicket: Ticket? { guard signedIn else { return nil }; return tickets.filter { $0.isValid && !ticketIsPast($0) }.sorted { ($0.startsAt ?? .distantFuture) < ($1.startsAt ?? .distantFuture) }.first }
 
     private init() {
         let configured = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String ?? "https://acc.salvemundi.nl"

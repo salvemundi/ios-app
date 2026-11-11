@@ -59,51 +59,49 @@ struct RootView: View {
 
 struct HomeView: View {
     @Environment(AppModel.self) private var model
-    @State private var showQuickScanner = false
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("JOUW STUDIEVERENIGING").font(.caption.weight(.semibold)).tracking(1.5).foregroundStyle(Brand.gold)
-                            Text((model.signedIn ? model.profile : nil).map { "Hoi, \($0.firstName)!" } ?? "Salve Mundi").font(.largeTitle.bold()).foregroundStyle(.white)
+                            Text(model.nextTicket == nil ? "BINNENKORT BIJ SALVE MUNDI" : (model.nextTicket?.startsAt.map { $0 < .now } == true ? "JOUW ACTIVITEIT" : "JE VOLGENDE ACTIVITEIT"))
+                                .font(.caption.weight(.semibold)).tracking(1.5).foregroundStyle(Brand.gold)
+                            Text(model.nextTicket?.title ?? (model.isLoading ? "Agenda laden…" : model.upcoming.first?.title ?? "Ontdek de agenda"))
+                                .font(.title.bold()).foregroundStyle(.white)
                         }
                         Spacer(minLength: 8)
                         Image("Brand").renderingMode(.template).resizable().scaledToFit().frame(width: 72).foregroundStyle(Brand.gold).accessibilityHidden(true)
                     }
-                    Text("Samen maken we je studententijd.").font(.title3).foregroundStyle(.white.opacity(0.8))
-                    if !model.signedIn {
-                        Button { Task { await model.signIn() } } label: {
-                            HStack { if model.isSigningIn { ProgressView().tint(Brand.deepPurple) }; Text("Inloggen als lid"); Image(systemName: "arrow.right") }
-                        }.buttonStyle(PrimaryButtonStyle(gold: true)).disabled(model.isSigningIn)
+                    if let ticket = model.nextTicket {
+                        if let date = ticket.startsAt { Label(date.formatted(.dateTime.weekday(.wide).day().month().hour().minute()), systemImage: "calendar").foregroundStyle(.white) }
+                        if let location = ticket.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").foregroundStyle(.white.opacity(0.8)) }
+                        Button { model.selectedTicket = ticket } label: { Label("Bekijk mijn ticket", systemImage: "qrcode") }.buttonStyle(PrimaryButtonStyle(gold: true))
+                    } else if model.isLoading {
+                        ProgressView("Je activiteiten ophalen…").tint(.white).foregroundStyle(.white)
                     } else {
-                        Label(model.profile?.isActiveMember == true ? "Actief lid" : "Welkom bij Salve Mundi", systemImage: "checkmark.seal.fill").font(.subheadline.weight(.semibold)).foregroundStyle(Brand.gold)
+                        if let next = model.upcoming.first {
+                            Text(model.signedIn ? "Je bent nog niet aangemeld voor een komende activiteit." : "De eerstvolgende activiteit uit de agenda.").font(.subheadline).foregroundStyle(.white.opacity(0.8))
+                            if let date = next.startsAt { Label(date.formatted(.dateTime.weekday(.wide).day().month().hour().minute()), systemImage: "calendar").foregroundStyle(.white) }
+                            if let location = next.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").foregroundStyle(.white.opacity(0.8)) }
+                            Button { model.selectedActivity = next } label: { Text("Bekijk activiteit") }.buttonStyle(PrimaryButtonStyle(gold: true))
+                        } else {
+                            Text("Nieuwe activiteiten verschijnen hier zodra ze bekend zijn.").foregroundStyle(.white.opacity(0.8))
+                            Button("Open de agenda") { model.selectedTab = .activities }.buttonStyle(PrimaryButtonStyle(gold: true))
+                        }
+                        if !model.signedIn {
+                            Button { Task { await model.signIn() } } label: { HStack { if model.isSigningIn { ProgressView().tint(.white) }; Text("Inloggen als lid"); Image(systemName: "arrow.right") } }.font(.subheadline.bold()).foregroundStyle(.white).disabled(model.isSigningIn)
+                        }
                     }
                 }
                 .padding(24).frame(maxWidth: .infinity, alignment: .leading)
                 .background(LinearGradient(colors: [Brand.purple, Brand.deepPurple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 28))
-                if model.canAdminActivities {
-                    HStack(spacing: 12) {
-                        Button { model.selectedTab = .admin } label: { Label("Beheer", systemImage: "slider.horizontal.3").frame(maxWidth: .infinity).padding(.vertical, 12) }.buttonStyle(.bordered)
-                        Button { showQuickScanner = true } label: { Label("Tickets scannen", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity).padding(.vertical, 12) }.buttonStyle(.borderedProminent).tint(Brand.purple)
-                    }
-                }
-                if let ticket = model.nextTicket {
-                    VStack(alignment: .leading, spacing: 14) {
-                        HStack {
-                            SectionHeading(title: "Jouw tickets")
-                            Button("Bekijk alles") { model.selectedTab = .tickets }
-                                .font(.subheadline.weight(.semibold)).fixedSize()
-                                .accessibilityLabel("Bekijk al mijn tickets")
-                        }
-                        Button { model.selectedTicket = ticket } label: {
-                            HStack(spacing: 16) {
-                                Image(systemName: "ticket.fill").font(.title).foregroundStyle(Brand.purple)
-                                VStack(alignment: .leading, spacing: 5) { Text(ticket.title).font(.headline).foregroundStyle(.primary); if let date = ticket.startsAt { Text(date.formatted(.dateTime.weekday().day().month().hour().minute())).font(.caption).foregroundStyle(.secondary) } }
-                                Spacer(); Image(systemName: "qrcode").font(.title2).foregroundStyle(Brand.purple)
-                            }.padding(20).background(Brand.card, in: RoundedRectangle(cornerRadius: 22))
-                        }.buttonStyle(.plain)
+                if model.signedIn {
+                    HStack {
+                        SectionHeading(title: "Jouw tickets")
+                        Button("Bekijk alles") { model.selectedTab = .tickets }
+                            .font(.subheadline.weight(.semibold)).fixedSize()
+                            .accessibilityLabel("Bekijk al mijn tickets")
                     }
                 }
                 VStack(spacing: 16) {
@@ -122,8 +120,6 @@ struct HomeView: View {
         }
         .background(Brand.background).navigationTitle("Salve Mundi").navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
-        .sheet(isPresented: $showQuickScanner) { NavigationStack { ActivityAdminScannerPicker() } }
-        .onChange(of: model.canAdminActivities) { _, allowed in if !allowed { showQuickScanner = false } }
     }
 }
 
