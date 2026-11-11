@@ -489,29 +489,3 @@ final class AppModel {
 enum AppTab: Hashable { case home, activities, tickets, profile, admin }
 
 struct ActivityAdminPresentation: Identifiable { let id = UUID(); let activityID: String? }
-
-extension AppModel {
-    func startLiveEvent(ticketID: String) async throws {
-        guard signedIn, !isDemo, let token = session?.token,
-              let current = tickets.first(where: { $0.id == ticketID }), let activityID = current.activityID else {
-            throw APIProblem(code: "live_unavailable", message: "Log in en open een geldig ticket om de evenementkaart te starten.")
-        }
-        async let freshTickets: [Ticket] = api.request("me/tickets", token: token)
-        async let freshActivity: Activity = api.request("activities/\(activityID)", token: token)
-        let loadedTickets: [Ticket]
-        let activity: Activity
-        do { (loadedTickets, activity) = try await (freshTickets, freshActivity) }
-        catch {
-            if let problem = error as? APIProblem, ["unauthorized", "session_expired", "invalid_session"].contains(problem.code) { handle(problem) }
-            else if let problem = error as? APIProblem, problem.code == "not_found", LiveEventController.shared.activeTicketID == ticketID { LiveEventController.shared.clear() }
-            throw error
-        }
-        guard signedIn, session?.token == token, let expiry = session?.expiresAt else { throw CancellationError() }
-        guard let ticket = loadedTickets.first(where: { $0.id == ticketID }),
-              let snapshot = EventLiveSnapshot.make(ticket: ticket, activity: activity, expiresNoLaterThan: min(expiry, Date.now.addingTimeInterval(8 * 3600))) else {
-            throw APIProblem(code: "live_unavailable", message: "De evenementkaart is beschikbaar vanaf vier uur voor de activiteit, met een geldig ticket en zolang de activiteit bezig is.")
-        }
-        tickets = loadedTickets
-        try await LiveEventController.shared.start(snapshot, sessionExpiry: expiry, authorized: { self.signedIn && self.session?.token == token })
-    }
-}

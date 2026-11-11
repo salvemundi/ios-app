@@ -205,5 +205,20 @@ final class LiveEventController {
             guard revision == currentRevision else { return }
             activeTicketID = ticketID
         }
+        guard revision == currentRevision, activeTicketID == nil, available else { return }
+        let started = UserDefaults.standard.dictionary(forKey: Self.startedKey) as? [String: Double] ?? [:]
+        let candidate = tickets.sorted { ($0.startsAt ?? .distantFuture) < ($1.startsAt ?? .distantFuture) }.compactMap { ticket -> EventLiveSnapshot? in
+            guard let activity = activities.first(where: { $0.id == ticket.activityID }) else { return nil }
+            return EventLiveSnapshot.make(ticket: ticket, activity: activity, expiresNoLaterThan: sessionExpiry)
+        }.first
+        // Without push, iOS only lets us start while the app is open; avoid re-adding a card the user just dismissed.
+        guard let candidate, Date.now.timeIntervalSince1970 - (started[candidate.ticketID] ?? 0) > 8 * 3600 else { return }
+        do {
+            try await start(candidate, sessionExpiry: sessionExpiry, authorized: { true })
+            var updated = started.filter { Date.now.timeIntervalSince1970 - $0.value < 7 * 86400 }
+            updated[candidate.ticketID] = Date.now.timeIntervalSince1970
+            UserDefaults.standard.set(updated, forKey: Self.startedKey)
+        } catch { }
     }
+    private static let startedKey = "liveEvent.autoStarted"
 }

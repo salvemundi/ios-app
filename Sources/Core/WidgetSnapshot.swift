@@ -198,7 +198,7 @@ public struct EventLiveSnapshot: Codable, Hashable, Sendable {
     }
     public static func make(ticket: Ticket, activity: Activity, at now: Date = .now, expiresNoLaterThan limit: Date? = nil) -> EventLiveSnapshot? {
         guard ticket.isValid, ticket.kind == "event", ticket.activityID == activity.id,
-              let start = activity.startsAt, start <= now.addingTimeInterval(4 * 3600) else { return nil }
+              let start = activity.startsAt else { return nil }
         let end = activity.endsAt ?? start.addingTimeInterval(3 * 3600)
         let expiry = min(end, limit ?? now.addingTimeInterval(8 * 3600))
         guard end > start, expiry > now else { return nil }
