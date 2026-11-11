@@ -95,7 +95,7 @@ struct SafariView: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: SFSafariViewController, context: Context) { }
 }
 
-private struct CalendarEditor: UIViewControllerRepresentable {
+struct CalendarEditor: UIViewControllerRepresentable {
     let event: EKEvent; let store: EKEventStore
     @Environment(\.dismiss) private var dismiss
     func makeCoordinator() -> Coordinator { Coordinator(dismiss: dismiss) }
@@ -108,5 +108,38 @@ private struct CalendarEditor: UIViewControllerRepresentable {
         let dismiss: DismissAction
         init(dismiss: DismissAction) { self.dismiss = dismiss }
         func eventEditViewController(_ controller: EKEventEditViewController, didCompleteWith action: EKEventEditViewAction) { dismiss() }
+    }
+}
+
+/// Reusable "add to calendar" button (used on the ticket page).
+struct AddToCalendarButton: View {
+    let title: String
+    let start: Date
+    let end: Date?
+    let location: String?
+    let url: URL?
+    @Environment(AppModel.self) private var model
+    @State private var store = EKEventStore()
+    @State private var event: EKEvent?
+    @State private var show = false
+    var body: some View {
+        Button { Task { await add() } } label: { Label("Zet in mijn agenda", systemImage: "calendar.badge.plus").frame(maxWidth: .infinity) }
+            .buttonStyle(.bordered)
+            .sheet(isPresented: $show) { if let event { CalendarEditor(event: event, store: store) } }
+    }
+    private func add() async {
+        do {
+            let granted = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+                store.requestWriteOnlyAccessToEvents { granted, error in
+                    if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: granted) }
+                }
+            }
+            guard granted else { model.notice = "Geef toegang tot je agenda via de instellingen van je iPhone."; return }
+            let item = EKEvent(eventStore: store)
+            item.title = title; item.startDate = start; item.endDate = end ?? start.addingTimeInterval(7200)
+            item.location = location; item.url = url
+            item.calendar = store.defaultCalendarForNewEvents
+            event = item; show = true
+        } catch { model.errorMessage = "De activiteit kon niet aan je agenda worden toegevoegd." }
     }
 }

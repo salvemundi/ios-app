@@ -80,6 +80,10 @@ struct TicketDetailView: View {
                         Label("Persoonlijk ticket · deel je QR-code niet", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
                     }
                 } else { EmptyState(icon: "clock", title: current.statusLabel, message: "Een geldige QR-code verschijnt nadat je inschrijving en eventuele betaling zijn bevestigd.") }
+                if let start = current.startsAt, !model.ticketIsPast(current) {
+                    let activity = model.activities.first(where: { $0.id == current.activityID })
+                    AddToCalendarButton(title: current.title, start: start, end: activity?.endsAt, location: current.location, url: activity?.websiteURL)
+                }
                 if model.isOffline { Label("Offline ticket · status kan gewijzigd zijn", systemImage: "wifi.slash").font(.caption).foregroundStyle(.secondary) }
             }.padding(20)
         }.background(Brand.background).navigationTitle("Ticket").navigationBarTitleDisplayMode(.inline)

@@ -1,3 +1,4 @@
+import AudioToolbox
 import AVFoundation
 import SwiftUI
 import UIKit
@@ -7,6 +8,7 @@ struct ActivityAdminScannerSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("door.sound") private var doorSoundOn = true
     @State private var processing = false
     @State private var roster: AdminRegistrations?
     @State private var rosterError: String?
@@ -69,7 +71,13 @@ struct ActivityAdminScannerSheet: View {
         }
         .padding(20)
         }.navigationTitle("Deurmodus").navigationBarTitleDisplayMode(.inline)
-        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } } }
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { doorSoundOn.toggle() } label: { Image(systemName: doorSoundOn ? "speaker.wave.2.fill" : "speaker.slash.fill") }
+                    .accessibilityLabel(doorSoundOn ? "Geluid dempen" : "Geluid aanzetten")
+            }
+            ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } }
+        }
         .task {
             visible = true
             await loadRoster()
@@ -126,7 +134,7 @@ struct ActivityAdminScannerSheet: View {
     private func clearStatus() { resetTask?.cancel(); statusTitle = nil; statusMessage = "" }
     private func showStatus(_ title: String, message: String, kind: String) {
         statusTitle = title; statusMessage = message; statusKind = kind
-        UINotificationFeedbackGenerator().notificationOccurred(kind == "success" ? .success : kind == "warning" ? .warning : .error)
+        DoorFeedback.play(kind: kind, sound: doorSoundOn)
         UIAccessibility.post(notification: .announcement, argument: title + ". " + message)
         resetTask?.cancel()
         resetTask = Task {
@@ -311,5 +319,24 @@ private final class CameraScannerController: UIViewController, @preconcurrency A
         guard gate.accept(token, enabled: scanningEnabled) else { return }
         scanningEnabled = false
         onCode(token)
+    }
+}
+
+/// Distinct haptics and short system sounds per scan result. Haptics always play; sound can be muted.
+enum DoorFeedback {
+    @MainActor static func play(kind: String, sound: Bool) {
+        switch kind {
+        case "success":
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            if sound { AudioServicesPlaySystemSound(1057) }
+        case "warning":
+            let generator = UIImpactFeedbackGenerator(style: .heavy)
+            generator.impactOccurred()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { generator.impactOccurred() }
+            if sound { AudioServicesPlaySystemSound(1105) }
+        default:
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            if sound { AudioServicesPlaySystemSound(1073) }
+        }
     }
 }
