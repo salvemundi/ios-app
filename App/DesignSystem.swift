@@ -104,8 +104,9 @@ struct ActivityBanner: View {
     let url: URL
     var fit = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var image: UIImage?
-    @State private var videoURL: URL?
+    @State private var media: CachedActivityMedia?
+    private var image: UIImage? { media?.image }
+    private var videoURL: URL? { media?.videoURL }
     var body: some View {
         Group {
             if let videoURL, !reduceMotion {
@@ -116,30 +117,15 @@ struct ActivityBanner: View {
         }
             .accessibilityHidden(true)
             .task(id: url) {
-                image = nil
-                videoURL = nil
-                do {
-                    let (data, response) = try await URLSession.shared.data(from: url)
-                    guard !Task.isCancelled, (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 20_000_000 else { return }
-                    // Website banners can be video assets, even when described as GIFs.
-                    // Asset URLs contain IDs, so detect the response rather than the suffix.
-                    if response.mimeType?.hasPrefix("video/") == true {
-                        videoURL = url
-                        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
-                        generator.appliesPreferredTrackTransform = true
-                        generator.maximumSize = CGSize(width: 900, height: 900)
-                        if let frame = try? await generator.image(at: .zero), !Task.isCancelled {
-                            image = UIImage(cgImage: frame.image)
-                        }
-                        return
-                    }
-                    let decoded = await Task.detached(priority: .utility) { Self.decode(data) }.value
-                    guard !Task.isCancelled else { return }
-                    image = decoded
-                } catch { /* Keep the card's gradient when the image is unavailable. */ }
+                media = nil
+                let loaded = await ActivityMediaCache.load(url)
+                guard !Task.isCancelled else { return }
+                media = loaded
             }
+            .onDisappear { media = nil }
     }
-    nonisolated private static func decode(_ data: Data) -> UIImage? {
+
+    nonisolated fileprivate static func decode(_ data: Data) -> UIImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let count = CGImageSourceGetCount(source)
         guard count > 0 else { return nil }
@@ -249,4 +235,60 @@ private final class ActivityVideoSurface: UIView {
         sourceURL = nil
     }
     deinit { NotificationCenter.default.removeObserver(self) }
+}
+
+// Share completed decodes and concurrent requests between list and detail cards.
+// Only public banner media is retained; no member data or app credentials.
+@MainActor private final class CachedActivityMedia: NSObject {
+    let image: UIImage?
+    let videoURL: URL?
+    let createdAt = Date()
+    let fileBytes: Int
+    init(image: UIImage?, videoURL: URL? = nil, fileBytes: Int = 0) { self.image = image; self.videoURL = videoURL; self.fileBytes = fileBytes }
+    var cost: Int {
+        guard let cg = (image?.images?.first ?? image)?.cgImage else { return max(1, fileBytes) }
+        return min(48 * 1024 * 1024, fileBytes + cg.bytesPerRow * cg.height * max(1, image?.images?.count ?? 1))
+    }
+    deinit { if let videoURL { try? FileManager.default.removeItem(at: videoURL) } }
+}
+
+@MainActor private enum ActivityMediaCache {
+    private static let cache: NSCache<NSURL, CachedActivityMedia> = {
+        let cache = NSCache<NSURL, CachedActivityMedia>()
+        cache.totalCostLimit = 48 * 1024 * 1024
+        cache.countLimit = 24
+        return cache
+    }()
+    private static var pending: [URL: Task<CachedActivityMedia?, Never>] = [:]
+    static func load(_ url: URL) async -> CachedActivityMedia? {
+        if let hit = cache.object(forKey: url as NSURL), Date().timeIntervalSince(hit.createdAt) < 600 { return hit }
+        if let task = pending[url] { return await task.value }
+        let task = Task<CachedActivityMedia?, Never> {
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard (response as? HTTPURLResponse)?.statusCode == 200, data.count <= 20_000_000 else { return nil }
+                if response.mimeType?.hasPrefix("video/") == true {
+                    let suffix = response.mimeType == "video/quicktime" ? "mov" : "mp4"
+                    let localURL = try await Task.detached(priority: .utility) {
+                        let target = FileManager.default.temporaryDirectory.appendingPathComponent("salve-banner-" + UUID().uuidString).appendingPathExtension(suffix)
+                        try data.write(to: target, options: [.atomic])
+                        return target
+                    }.value
+                    let generator = AVAssetImageGenerator(asset: AVURLAsset(url: localURL))
+                    generator.appliesPreferredTrackTransform = true
+                    generator.maximumSize = CGSize(width: 900, height: 900)
+                    let frame = try? await generator.image(at: .zero)
+                    return CachedActivityMedia(image: frame.map { UIImage(cgImage: $0.image) }, videoURL: localURL, fileBytes: data.count)
+                }
+                let image = await Task.detached(priority: .utility) { ActivityBanner.decode(data) }.value
+                guard let image else { return nil }
+                return CachedActivityMedia(image: image)
+            } catch { return nil }
+        }
+        pending[url] = task
+        let result = await task.value
+        pending[url] = nil
+        if let result { cache.setObject(result, forKey: url as NSURL, cost: result.cost) }
+        return result
+    }
 }

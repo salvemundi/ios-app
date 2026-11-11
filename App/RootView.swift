@@ -132,7 +132,7 @@ struct ActivitiesView: View {
     }
     var body: some View {
         ScrollView {
-            VStack(spacing: 18) {
+            LazyVStack(spacing: 18) {
                 Picker("Periode", selection: $upcomingOnly) { Text("Binnenkort").tag(true); Text("Alle activiteiten").tag(false) }.pickerStyle(.segmented)
                 if model.isLoading && model.activities.isEmpty { ProgressView().padding(40) }
                 else if model.backendUnavailableMessage != nil && model.activities.isEmpty { EmptyState(icon: "calendar.badge.exclamationmark", title: "Agenda tijdelijk niet beschikbaar", message: "Je kunt opnieuw laden zodra de appverbinding actief is.") }
