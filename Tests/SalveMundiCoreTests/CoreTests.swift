@@ -42,6 +42,20 @@ struct CoreTests {
         }
     }
 
+    @Test func doorModeTreatsTodayAsNotPast() throws {
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 17, hour: 23, minute: 30))!
+        func make(_ start: Date, _ end: Date?) -> Activity {
+            Activity(id: "event:1", title: "Test", description: nil, startsAt: start, endsAt: end, location: nil, imageURL: nil, memberPriceCents: 0, guestPriceCents: 0, membersOnly: false, registrationDeadline: nil, capacity: nil, signupCount: nil, kind: "event", registrationViaWebsite: false, websiteURL: URL(string: "https://acc.salvemundi.nl/activiteiten/1")!)
+        }
+        let tonight = make(calendar.date(byAdding: .hour, value: -4, to: now)!, nil)
+        #expect(tonight.isPast(at: now) && !tonight.endedBeforeToday(at: now, calendar: calendar) && tonight.isToday(at: now, calendar: calendar))
+        let yesterday = make(calendar.date(byAdding: .day, value: -1, to: now)!, nil)
+        #expect(yesterday.endedBeforeToday(at: now, calendar: calendar) && !yesterday.isToday(at: now, calendar: calendar))
+        let multiDay = make(calendar.date(byAdding: .day, value: -2, to: now)!, calendar.date(byAdding: .day, value: 1, to: now)!)
+        #expect(multiDay.isToday(at: now, calendar: calendar) && !multiDay.endedBeforeToday(at: now, calendar: calendar))
+    }
+
     @Test func dateFormatsAndActivityAvailability() throws {
         let json = """
         {"id":"event:12","title":"Borrel","startsAt":"2027-01-10T12:00:00.123Z","memberPriceCents":0,"guestPriceCents":250,"membersOnly":true,"registrationDeadline":"2027-01-09T12:00:00Z","capacity":20,"signupCount":20,"kind":"event","websiteURL":"https://acc.salvemundi.nl/activiteiten/12"}

@@ -543,14 +543,12 @@ struct ActivityAdminScannerPicker: View {
     @State private var search = ""
     @State private var loading = false
     @State private var error: String?
-    private var activities: [AdminActivity] {
-        (model.adminCollection?.activities ?? []).filter { $0.canCheckIn && (search.isEmpty || $0.activity.title.localizedCaseInsensitiveContains(search)) }.sorted {
-            let aPast = $0.activity.isPast(), bPast = $1.activity.isPast()
-            if aPast != bPast { return !aPast }
-            if aPast { return ($0.activity.startsAt ?? .distantPast) > ($1.activity.startsAt ?? .distantPast) }
-            return ($0.activity.startsAt ?? .distantFuture) < ($1.activity.startsAt ?? .distantFuture)
-        }
+    private var matching: [AdminActivity] {
+        (model.adminCollection?.activities ?? []).filter { $0.canCheckIn && (search.isEmpty || $0.activity.title.localizedCaseInsensitiveContains(search)) }
     }
+    private var today: [AdminActivity] { matching.filter { $0.activity.isToday() }.sorted { ($0.activity.startsAt ?? .distantPast) < ($1.activity.startsAt ?? .distantPast) } }
+    private var upcoming: [AdminActivity] { matching.filter { !$0.activity.isToday() && !$0.activity.endedBeforeToday() }.sorted { ($0.activity.startsAt ?? .distantFuture) < ($1.activity.startsAt ?? .distantFuture) } }
+    private var past: [AdminActivity] { matching.filter { !$0.activity.isToday() && $0.activity.endedBeforeToday() }.sorted { ($0.activity.startsAt ?? .distantPast) > ($1.activity.startsAt ?? .distantPast) } }
     var body: some View {
         Group {
             if model.canAdminActivities {
@@ -558,16 +556,10 @@ struct ActivityAdminScannerPicker: View {
                     Section { Text("Kies de activiteit waarvoor je tickets wilt scannen.").foregroundStyle(.secondary) }
                     if loading { ProgressView("Activiteiten laden…") }
                     if let error { Text(error).foregroundStyle(.red) }
-                    ForEach(activities) { item in
-                        NavigationLink { ActivityAdminScannerSheet(activityID: item.id) } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Label(item.activity.title, systemImage: "qrcode.viewfinder").font(.headline)
-                                if let date = item.activity.startsAt { Text(date.formatted(.dateTime.day().month().year().hour().minute())).font(.caption).foregroundStyle(.secondary) }
-                                if item.activity.isPast() { Text("Afgelopen activiteit").font(.caption).foregroundStyle(.secondary) }
-                            }.padding(.vertical, 6)
-                        }
-                    }
-                    if activities.isEmpty && !loading && error == nil { Text("Geen toegestane activiteiten gevonden.").foregroundStyle(.secondary) }
+                    doorSection("Vandaag", today, past: false)
+                    doorSection("Binnenkort", upcoming, past: false)
+                    doorSection("Afgelopen · niet van vandaag", past, past: true)
+                    if matching.isEmpty && !loading && error == nil { Text("Geen toegestane activiteiten gevonden.").foregroundStyle(.secondary) }
                 }
             } else { EmptyState(icon: "lock.shield", title: "Geen toegang", message: "Je hebt geen toegang tot tickets scannen.") }
         }
@@ -577,6 +569,21 @@ struct ActivityAdminScannerPicker: View {
         .task { await load() }
         .refreshable { await load() }
         .privacySensitive()
+    }
+    @ViewBuilder private func doorSection(_ title: String, _ items: [AdminActivity], past: Bool) -> some View {
+        if !items.isEmpty {
+            Section(title) {
+                ForEach(items) { item in
+                    NavigationLink { ActivityAdminScannerSheet(activityID: item.id) } label: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label(item.activity.title, systemImage: past ? "clock.arrow.circlepath" : "qrcode.viewfinder").font(.headline)
+                            if let date = item.activity.startsAt { Text(date.formatted(.dateTime.day().month().year().hour().minute())).font(.caption).foregroundStyle(.secondary) }
+                            if past { Text("Afgelopen activiteit").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
+                        }.padding(.vertical, 6).opacity(past ? 0.7 : 1)
+                    }
+                }
+            }
+        }
     }
     private func load() async {
         loading = true; error = nil; defer { loading = false }

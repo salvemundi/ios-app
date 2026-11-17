@@ -1,6 +1,8 @@
 import SwiftUI
 import WidgetKit
+#if !targetEnvironment(macCatalyst)
 import ActivityKit
+#endif
 
 private struct SalveEntry: TimelineEntry {
     let date: Date
@@ -192,9 +194,15 @@ struct AdminActivitySignupsWidget: Widget {
 
 @main
 struct SalveMundiWidgets: WidgetBundle {
-    var body: some Widget { UpcomingActivitiesWidget(); NextBookedEventWidget(); AdminActivitySignupsWidget(); SalveEventLiveActivity() }
+    var body: some Widget {
+        UpcomingActivitiesWidget(); NextBookedEventWidget(); AdminActivitySignupsWidget()
+        #if !targetEnvironment(macCatalyst)
+        SalveEventLiveActivity()
+        #endif
+    }
 }
 
+#if !targetEnvironment(macCatalyst)
 private struct SalveEventLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: SalveEventActivityAttributes.self) { context in
@@ -232,3 +240,4 @@ private struct SalveEventLiveActivity: Widget {
         }
     }
 }
+#endif

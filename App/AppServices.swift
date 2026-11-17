@@ -1,5 +1,7 @@
 import AuthenticationServices
+#if !targetEnvironment(macCatalyst)
 import ActivityKit
+#endif
 import Observation
 import CryptoKit
 import Foundation
@@ -129,8 +131,9 @@ enum LocalCache {
         guard let data = try? JSONCoding.encoder().encode(value) else { return }
         try? data.write(to: directory.appendingPathComponent(name), options: [.atomic, .completeFileProtection])
     }
+    static func remove(_ name: String) { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
     static func clearPrivate() {
-        for name in ["tickets.json", "profile.json", "updated.json"] { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
+        for name in ["tickets.json", "profile.json", "updated.json", "adminAccess.json"] { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
     }
 }
 
@@ -146,6 +149,18 @@ enum NotificationAuthorization {
     }
 }
 
+#if targetEnvironment(macCatalyst)
+@MainActor @Observable
+final class LiveEventController {
+    // Live Activities do not exist on the Mac; keep the same surface as a no-op.
+    static let shared = LiveEventController()
+    private(set) var activeTicketID: String?
+    var available: Bool { false }
+    func clear() {}
+    func stop() async {}
+    func refresh(tickets: [Ticket], activities: [Activity], sessionExpiry: Date) async {}
+}
+#else
 @MainActor @Observable
 final class LiveEventController {
     static let shared = LiveEventController()
@@ -222,3 +237,4 @@ final class LiveEventController {
     }
     private static let startedKey = "liveEvent.autoStarted"
 }
+#endif

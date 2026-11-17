@@ -207,7 +207,7 @@ public struct EventLiveSnapshot: Codable, Hashable, Sendable {
     }
 }
 
-#if canImport(ActivityKit) && os(iOS)
+#if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
 import ActivityKit
 public struct SalveEventActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable, Sendable {

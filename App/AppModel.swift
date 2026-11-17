@@ -64,6 +64,8 @@ final class AppModel {
             tickets = LocalCache.read("tickets.json", as: [Ticket].self) ?? []
             profile = LocalCache.read("profile.json", as: MemberProfile.self)
             lastUpdated = LocalCache.read("updated.json", as: Date.self)
+            // Only a hint so the Beheer tab shows at once; the server re-checks it right after launch and still authorizes every request.
+            adminAccess = LocalCache.read("adminAccess.json", as: ActivityAdminAccess.self)
         } else {
             session = nil; SecureSessionStore.clear(); LocalCache.clearPrivate()
             LiveEventController.shared.clear()
@@ -357,6 +359,7 @@ final class AppModel {
                 clearActivityAdminState()
             }
             adminAccess = access
+            LocalCache.save(access, name: "adminAccess.json")
             adminMessage = nil
             let revision = adminRevision
             Task { await refreshAdminWidgetAccess(token: token, generation: generation, revision: revision) }
@@ -385,6 +388,7 @@ final class AppModel {
         adminRevision &+= 1
         adminAccessRequest &+= 1
         adminAccess = nil; adminCollection = nil; adminMessage = nil; adminAccessLoading = false
+        LocalCache.remove("adminAccess.json")
         for url in adminExportURLs { try? FileManager.default.removeItem(at: url) }
         adminExportURLs.removeAll()
         AdminWidgetCredentialStore.clear()

@@ -21,6 +21,18 @@ public struct Activity: Codable, Identifiable, Hashable, Sendable {
     public func isPast(at date: Date = .now) -> Bool {
         (endsAt ?? startsAt).map { $0 <= date } ?? false
     }
+    /// Door mode groups by calendar day: an activity is only "past" once its last day lies before today,
+    /// so tonight's activity is never shown as past after it started or ended.
+    public func endedBeforeToday(at date: Date = .now, calendar: Calendar = .current) -> Bool {
+        guard let last = endsAt ?? startsAt else { return false }
+        return calendar.startOfDay(for: last) < calendar.startOfDay(for: date)
+    }
+    public func isToday(at date: Date = .now, calendar: Calendar = .current) -> Bool {
+        guard let start = startsAt ?? endsAt else { return false }
+        let today = calendar.startOfDay(for: date)
+        let first = calendar.startOfDay(for: start), last = calendar.startOfDay(for: endsAt ?? start)
+        return first <= today && today <= last
+    }
     public var isFull: Bool { capacity.map { (signupCount ?? 0) >= $0 } ?? false }
     public func registrationClosed(at date: Date = .now) -> Bool {
         isPast(at: date) || isFull || (registrationDeadline.map { $0 <= date } ?? false)
