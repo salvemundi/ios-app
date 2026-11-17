@@ -3,6 +3,7 @@ import Foundation
 import Observation
 import UIKit
 import UserNotifications
+import Network
 import WidgetKit
 
 @MainActor @Observable
@@ -29,6 +30,13 @@ final class AppModel {
     var notice: String?
     var lastUpdated: Date?
     var isOffline = false
+    var sessionExpired = false
+    var pendingScans = PendingScanQueue()
+    /// Reasons the server rejected offline scans, per activity, until the volunteer has seen them.
+    var scanRejections: [String: [String]] = [:]
+    /// Light-weight attendance counts per activity for Home, refreshed without reloading the whole admin list.
+    var liveCounts: [String: LiveCount] = [:]
+    private var flushingScans = false
     var selectedTab: AppTab = .home
     var selectedActivity: Activity?
     var selectedTicket: Ticket?
@@ -66,7 +74,10 @@ final class AppModel {
             lastUpdated = LocalCache.read("updated.json", as: Date.self)
             // Only a hint so the Beheer tab shows at once; the server re-checks it right after launch and still authorizes every request.
             adminAccess = LocalCache.read("adminAccess.json", as: ActivityAdminAccess.self)
+            if adminAccess?.canAccess == true { adminCollection = LocalCache.read("adminActivities.json", as: AdminActivityCollection.self) }
+            pendingScans = LocalCache.read("pendingScans.json", as: PendingScanQueue.self) ?? PendingScanQueue()
         } else {
+            if session != nil { sessionExpired = true }
             session = nil; SecureSessionStore.clear(); LocalCache.clearPrivate()
             LiveEventController.shared.clear()
         }
@@ -121,12 +132,14 @@ final class AppModel {
             lastUpdated = .now
             LocalCache.save(lastUpdated, name: "updated.json")
             writeWidgetSnapshot()
+            presentTicketIfNear()
+            Task { await syncAllPendingScans() }
         } catch { if generation == sessionGeneration { handle(error) } }
     }
 
     func signIn() async {
         guard !isSigningIn else { return }
-        isSigningIn = true; errorMessage = nil
+        isSigningIn = true; errorMessage = nil; sessionExpired = false
         defer { isSigningIn = false }
         do {
             let result = try await login.signIn(server: server, api: api)
@@ -333,6 +346,11 @@ final class AppModel {
             }
         case .ticket(let id):
             selectedTab = .tickets; await refresh(); selectedTicket = tickets.first(where: { $0.id == id })
+        case .ticketForActivity(let activityID):
+            selectedTab = .tickets
+            if !tickets.contains(where: { $0.activityID == activityID }) { await refresh() }
+            if let ticket = tickets.first(where: { $0.activityID == activityID }) { selectedTicket = ticket }
+            else if let activity = activities.first(where: { $0.id == activityID }) { selectedActivity = activity }
         case .tickets, .paymentReturn: selectedTab = .tickets; checkoutURL = nil; await refresh()
         }
     }
@@ -367,6 +385,14 @@ final class AppModel {
         } catch {
             guard generation == sessionGeneration, request == adminAccessRequest else { return false }
             if let problem = error as? APIProblem, problem.code == "unauthorized" { handle(problem) }
+            else if error is URLError || error is CancellationError {
+                // Transient (locking the phone, no network): keep the last server-confirmed access. Dropping it makes the
+                // admin tab and its navigation stack tear down while on screen, which crashes UIKit. The server still
+                // enforces permissions on every request.
+                if adminAccess != nil { adminMessage = "Geen verbinding. Beheer toont de laatst bekende gegevens." }
+                else { adminMessage = "Activiteitenbeheer is alleen beschikbaar met een internetverbinding." }
+                return adminAccess?.canAccess == true
+            }
             else { clearActivityAdminState(); adminMessage = "Activiteitenbeheer is niet beschikbaar of je hebt geen toegang." }
         }
         return false
@@ -388,7 +414,7 @@ final class AppModel {
         adminRevision &+= 1
         adminAccessRequest &+= 1
         adminAccess = nil; adminCollection = nil; adminMessage = nil; adminAccessLoading = false
-        LocalCache.remove("adminAccess.json")
+        LocalCache.remove("adminAccess.json"); LocalCache.remove("adminActivities.json")
         for url in adminExportURLs { try? FileManager.default.removeItem(at: url) }
         adminExportURLs.removeAll()
         AdminWidgetCredentialStore.clear()
@@ -424,7 +450,7 @@ final class AppModel {
             if let problem = error as? APIProblem, problem.code == "unauthorized" { handle(problem) }
             else if let problem = error as? APIProblem, problem.code == "forbidden" { clearActivityAdminState(); adminMessage = problem.message }
             else if let problem = error as? APIProblem, problem.code == "not_found", !path.hasSuffix("/scan") { clearActivityAdminState(); adminMessage = "Deze activiteit is niet meer beschikbaar of je hebt geen toegang." }
-            else if error is URLError { clearActivityAdminState(); adminMessage = "Activiteitenbeheer is alleen beschikbaar met een internetverbinding." }
+            else if error is URLError { adminMessage = "Geen verbinding. Beheer toont de laatst bekende gegevens." } // keep cached state: door mode must keep working offline
             throw error
         }
     }
@@ -435,9 +461,10 @@ final class AppModel {
 
     @discardableResult
     func loadAdminActivities() async throws -> AdminActivityCollection {
-        adminCollection = nil
+        // Keep the previous list on screen while refreshing; it is replaced (or cleared on access loss) below.
         let value: AdminActivityCollection = try await adminRequest("admin/activities")
         adminCollection = value
+        LocalCache.save(value, name: "adminActivities.json")
         return value
     }
 
@@ -466,12 +493,13 @@ final class AppModel {
     func removeAdminExport(_ url: URL) { try? FileManager.default.removeItem(at: url); adminExportURLs.remove(url) }
 
     private func handle(_ error: Error) {
+        Diagnostics.shared.log("error " + ((error as? APIProblem)?.code ?? (error is URLError ? "network" : String(describing: type(of: error)))))
         if let problem = error as? APIProblem, problem.code == "backend_unavailable" {
             backendUnavailableMessage = problem.message
             isOffline = false
             errorMessage = nil
         } else if let problem = error as? APIProblem, ["unauthorized", "session_expired", "invalid_session"].contains(problem.code) {
-            clearSession(); errorMessage = "Je sessie is verlopen. Log opnieuw in."
+            clearSession(); sessionExpired = true; errorMessage = nil
         } else if error is URLError {
             isOffline = true
             errorMessage = "Geen verbinding. Je eerder geladen activiteiten en tickets blijven beschikbaar."
@@ -493,3 +521,102 @@ final class AppModel {
 enum AppTab: Hashable { case home, activities, tickets, profile, admin }
 
 struct ActivityAdminPresentation: Identifiable { let id = UUID(); let activityID: String? }
+
+// MARK: - Offline door scans, ticket near the event, live attendance
+extension AppModel {
+    /// Queue a scan made without a connection. The server validates it as soon as we are online again.
+    @discardableResult
+    func queueOfflineScan(activityID: String, token: String) -> Bool {
+        let added = pendingScans.enqueue(PendingScan(activityID: activityID, token: token))
+        if added { LocalCache.save(pendingScans, name: "pendingScans.json") }
+        return added
+    }
+
+    /// Sends queued scans one by one. Connection errors keep the rest queued; server answers (valid or not) are final.
+    func flushPendingScans(activityID: String) async -> (confirmed: Int, rejected: [String]) {
+        var confirmed = 0
+        var rejected: [String] = []
+        for scan in pendingScans.items(for: activityID) {
+            do {
+                let _: AdminScanResult = try await adminMutation("admin/activities/\(scan.activityID)/scan", value: AdminScanRequest(token: scan.token))
+                confirmed += 1
+            } catch is CancellationError { break }
+            catch let problem as APIProblem {
+                rejected.append(problem.code == "unpaid_registration" ? "Nog niet betaald" : problem.code == "not_found" ? "Geen geldig ticket" : problem.message)
+            } catch { break } // still offline: keep the remainder queued
+            pendingScans.remove(scan.id)
+            LocalCache.save(pendingScans, name: "pendingScans.json")
+        }
+        return (confirmed, rejected)
+    }
+
+    struct LiveCount: Equatable { let confirmed: Int; let checkedIn: Int }
+
+    /// Small request (max 8 activities, counts only) used for the 30-second Home refresh.
+    func refreshLiveCounts() async {
+        guard canAdminActivities else { return }
+        do {
+            let summary: AdminWidgetSummary = try await adminRequest("admin/widget-activities")
+            liveCounts = Dictionary(uniqueKeysWithValues: summary.items.map { ($0.id, LiveCount(confirmed: $0.confirmedCount, checkedIn: $0.checkedInCount)) })
+        } catch { }
+    }
+
+    /// Syncs every queued offline scan, whichever screen is open. Safe to call repeatedly.
+    func syncAllPendingScans() async {
+        guard !flushingScans, canAdminActivities, !pendingScans.items.isEmpty else { return }
+        flushingScans = true
+        defer { flushingScans = false }
+        var confirmed = 0
+        for activityID in Set(pendingScans.items.map(\.activityID)) {
+            let result = await flushPendingScans(activityID: activityID)
+            confirmed += result.confirmed
+            if !result.rejected.isEmpty { scanRejections[activityID, default: []].append(contentsOf: result.rejected) }
+        }
+        if confirmed > 0 {
+            notice = confirmed == 1 ? "1 offline scan is bijgewerkt op de server." : "\(confirmed) offline scans zijn bijgewerkt op de server."
+            _ = try? await loadAdminActivities()
+        }
+    }
+
+    /// Watches the connection; the moment the device is back online, queued scans are sent.
+    func startConnectivityWatch() {
+        let monitor = NWPathMonitor()
+        let wasOnline = ManagedFlag(true)
+        monitor.pathUpdateHandler = { path in
+            let online = path.status == .satisfied
+            let regained = online && !wasOnline.value
+            wasOnline.value = online
+            if regained { Task { @MainActor in await AppModel.shared.syncAllPendingScans() } }
+        }
+        monitor.start(queue: DispatchQueue(label: "nl.salvemundi.connectivity"))
+    }
+
+    /// Opens the member's ticket once when the event is about to start (or just started).
+    func presentTicketIfNear() {
+        // Per-device preference (Profile); default on when never set.
+        guard UserDefaults.standard.object(forKey: "ticket.autoOpen") as? Bool ?? true else { return }
+        guard signedIn, selectedTicket == nil, selectedActivity == nil, adminPresentation == nil, checkoutURL == nil,
+              let ticket = nextTicket, TicketWindow.isNear(start: ticket.startsAt) else { return }
+        let key = "ticket.autoPresented"
+        var shown = UserDefaults.standard.dictionary(forKey: key) as? [String: Double] ?? [:]
+        guard Date.now.timeIntervalSince1970 - (shown[ticket.id] ?? 0) > 4 * 3600 else { return }
+        shown = shown.filter { Date.now.timeIntervalSince1970 - $0.value < 2 * 86400 }
+        shown[ticket.id] = Date.now.timeIntervalSince1970
+        UserDefaults.standard.set(shown, forKey: key)
+        // Present over the current tab: HIG advises against switching tabs on the user's behalf.
+        selectedTicket = ticket
+    }
+
+    /// Activities happening today that this member may check in, for the live attendance card on Home.
+    var doorActivitiesToday: [AdminActivity] {
+        guard canAdminActivities else { return [] }
+        return DoorGroups(adminCollection?.activities ?? []).today
+    }
+}
+
+/// Tiny lock-protected flag so the path monitor callback can remember the previous state.
+final class ManagedFlag: @unchecked Sendable {
+    private let lock = NSLock(); private var stored: Bool
+    init(_ value: Bool) { stored = value }
+    var value: Bool { get { lock.withLock { stored } } set { lock.withLock { stored = newValue } } }
+}

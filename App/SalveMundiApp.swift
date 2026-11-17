@@ -28,6 +28,8 @@ struct SalveMundiApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        Diagnostics.shared.start()
+        AppModel.shared.startConnectivityWatch()
         Task {
             if AppModel.shared.signedIn, await NotificationAuthorization.isAllowed() { application.registerForRemoteNotifications() }
         }
@@ -42,16 +44,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions { [.banner, .sound, .badge] }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        let payload = response.notification.request.content.userInfo
-        let link = payload["url"] as? String
-        let activityID = payload["activityID"] as? String
+        let destination = NotificationRoute.destination(response.notification.request.content.userInfo)
         await MainActor.run {
-            var destination = link.flatMap(URL.init(string:))
-            if destination == nil, let activityID {
-                var components = URLComponents()
-                components.scheme = "salvemundi"; components.host = "activities"; components.path = "/\(activityID)"
-                destination = components.url
-            }
             if let destination { Task { await AppModel.shared.open(destination) } }
         }
     }

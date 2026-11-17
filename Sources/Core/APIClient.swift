@@ -90,7 +90,7 @@ public struct MutationAcknowledgement: Decodable, Sendable { public let success:
 public struct EmptyPayload: Encodable, Sendable { public init() {} }
 
 public enum DeepLink: Equatable, Sendable {
-    case activities, activity(String), ticket(String), tickets, paymentReturn, adminActivities(String?)
+    case activities, activity(String), ticket(String), ticketForActivity(String), tickets, paymentReturn, adminActivities(String?)
     public init?(url: URL) {
         let isCustom = url.scheme == "salvemundi"
         guard isCustom || (url.scheme == "https" && ["acc.salvemundi.nl"].contains(url.host ?? "")) else { return nil }
@@ -107,10 +107,36 @@ public enum DeepLink: Equatable, Sendable {
                 guard id.dropFirst(6).allSatisfy({ "0123456789".contains($0) }), id.count > 6 else { return nil }
                 self = .adminActivities(id)
             } else { self = .adminActivities(nil) }
-        case "tickets": self = pieces.count > 1 ? .ticket(pieces[1]) : .tickets
+        case "tickets":
+            if pieces.count > 2, pieces[1] == "activity" { self = .ticketForActivity(pieces[2].contains(":") ? pieces[2] : "event:\(pieces[2])") }
+            else { self = pieces.count > 1 ? .ticket(pieces[1]) : .tickets }
         case "profiel" where pieces.dropFirst().first == "tickets": self = .tickets
         case "payment": self = .paymentReturn
         default: return nil
         }
+    }
+}
+
+/// Maps a push payload to an in-app destination. Organizer alerts open the admin roster, member alerts the member's own ticket.
+public enum NotificationRoute {
+    public static func destination(_ payload: [AnyHashable: Any]) -> URL? {
+        if let link = payload["url"] as? String, let url = URL(string: link), DeepLink(url: url) != nil { return url }
+        guard let id = payload["activityID"] as? String, id.hasPrefix("event:"), id.dropFirst(6).allSatisfy({ $0.isNumber }), id.count > 6 else { return nil }
+        let kind = payload["kind"] as? String
+        var components = URLComponents(); components.scheme = "salvemundi"
+        switch kind {
+        case "organizerAlmostFull", "organizerSignups": components.host = "admin"; components.path = "/activities/\(id)"
+        case "registrations", "payments", "reminders": components.host = "tickets"; components.path = "/activity/\(id)"
+        default: components.host = "activities"; components.path = "/\(id)"
+        }
+        return components.url
+    }
+}
+
+/// When to put the ticket in front of the member: shortly before the start until a few hours into the event.
+public enum TicketWindow {
+    public static func isNear(start: Date?, now: Date = .now, before: TimeInterval = 2 * 3600, after: TimeInterval = 3 * 3600) -> Bool {
+        guard let start else { return false }
+        return now >= start.addingTimeInterval(-before) && now <= start.addingTimeInterval(after)
     }
 }

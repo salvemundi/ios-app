@@ -5,14 +5,16 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         TabView(selection: $model.selectedTab) {
-            Tab("Home", systemImage: "house.fill", value: .home) { NavigationStack { HomeView() } }
-            Tab("Activiteiten", systemImage: "calendar", value: .activities) { NavigationStack { ActivitiesView() } }
-            Tab("Tickets", systemImage: "qrcode", value: .tickets) { NavigationStack { TicketsView() } }
-            if model.canAdminActivities {
-                Tab("Beheer", systemImage: "slider.horizontal.3", value: .admin) { ActivityAdminRootView(initialActivityID: nil, embedded: true) }
-            }
-            Tab("Profiel", systemImage: "person.crop.circle", value: .profile) { NavigationStack { ProfileView() } }
+            Tab("Home", systemImage: "house.fill", value: .home) { NavigationStack { HomeView() }.tabEntrance() }
+            Tab("Activiteiten", systemImage: "calendar", value: .activities) { NavigationStack { ActivitiesView() }.tabEntrance() }
+            Tab("Tickets", systemImage: "qrcode", value: .tickets) { NavigationStack { TicketsView() }.tabEntrance() }
+            // Always keep this tab in the tab list and only hide it: inserting/removing a tab makes SwiftUI reuse
+            // navigation controllers by position, so Beheer and Profiel can end up sharing a navigation item (UIKit crash).
+            Tab("Beheer", systemImage: "slider.horizontal.3", value: .admin) { ActivityAdminRootView(initialActivityID: nil, embedded: true).tabEntrance() }
+                .hidden(!model.canAdminActivities)
+            Tab("Profiel", systemImage: "person.crop.circle", value: .profile) { NavigationStack { ProfileView() }.tabEntrance() }
         }
+        .sensoryFeedback(.selection, trigger: model.selectedTab)
         .onChange(of: model.canAdminActivities) { _, allowed in
             if !allowed && model.selectedTab == .admin { model.selectedTab = .home }
         }
@@ -50,6 +52,20 @@ struct RootView: View {
                 .background(Brand.gold.opacity(0.95))
                 .accessibilityElement(children: .contain)
             }
+            if model.sessionExpired && !model.signedIn {
+                HStack(spacing: 12) {
+                    Image(systemName: "person.crop.circle.badge.exclamationmark")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Je sessie is verlopen").font(.subheadline.bold())
+                        Text("Log opnieuw in om je tickets en beheer weer te zien.").font(.caption)
+                    }
+                    Spacer(minLength: 8)
+                    Button { Task { await model.signIn() } } label: { if model.isSigningIn { ProgressView() } else { Text("Inloggen") } }
+                        .buttonStyle(.borderedProminent).tint(Brand.purple).disabled(model.isSigningIn)
+                }
+                .padding(12).foregroundStyle(Brand.deepPurple).background(Brand.gold.opacity(0.95))
+                .accessibilityElement(children: .contain)
+            }
             if model.isOffline {
                 HStack(spacing: 8) { Image(systemName: "wifi.slash"); Text("Offline · eerder geladen gegevens") }.font(.caption).frame(maxWidth: .infinity).padding(8).background(Brand.gold).foregroundStyle(Brand.deepPurple)
             }
@@ -75,18 +91,18 @@ struct HomeView: View {
                     }
                     if let ticket = model.nextTicket {
                         if let date = ticket.startsAt { Label(date.formatted(.dateTime.weekday(.wide).day().month().hour().minute()), systemImage: "calendar").foregroundStyle(.white) }
-                        if let location = ticket.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").foregroundStyle(.white.opacity(0.8)) }
+                        if let location = ticket.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").foregroundStyle(.white.opacity(0.92)) }
                         Button { model.selectedTicket = ticket } label: { Label("Bekijk mijn ticket", systemImage: "qrcode") }.buttonStyle(PrimaryButtonStyle(gold: true))
                     } else if model.isLoading {
                         ProgressView("Je activiteiten ophalen…").tint(.white).foregroundStyle(.white)
                     } else {
                         if let next = model.upcoming.first {
-                            Text(model.signedIn ? "Je bent nog niet aangemeld voor een komende activiteit." : "De eerstvolgende activiteit uit de agenda.").font(.subheadline).foregroundStyle(.white.opacity(0.8))
+                            Text(model.signedIn ? "Je bent nog niet aangemeld voor een komende activiteit." : "De eerstvolgende activiteit uit de agenda.").font(.subheadline).foregroundStyle(.white.opacity(0.92))
                             if let date = next.startsAt { Label(date.formatted(.dateTime.weekday(.wide).day().month().hour().minute()), systemImage: "calendar").foregroundStyle(.white) }
-                            if let location = next.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").foregroundStyle(.white.opacity(0.8)) }
+                            if let location = next.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").foregroundStyle(.white.opacity(0.92)) }
                             Button { model.selectedActivity = next } label: { Text("Bekijk activiteit") }.buttonStyle(PrimaryButtonStyle(gold: true))
                         } else {
-                            Text("Nieuwe activiteiten verschijnen hier zodra ze bekend zijn.").foregroundStyle(.white.opacity(0.8))
+                            Text("Nieuwe activiteiten verschijnen hier zodra ze bekend zijn.").foregroundStyle(.white.opacity(0.92))
                             Button("Open de agenda") { model.selectedTab = .activities }.buttonStyle(PrimaryButtonStyle(gold: true))
                         }
                         if !model.signedIn {
@@ -97,8 +113,10 @@ struct HomeView: View {
                 .padding(24).frame(maxWidth: .infinity, alignment: .leading)
                 .background(LinearGradient(colors: [Brand.purple, Brand.deepPurple], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 28))
 
+                if !model.doorActivitiesToday.isEmpty { AttendanceCard(items: model.doorActivitiesToday) }
+
                 VStack(spacing: 16) {
-                    HStack { SectionHeading(title: "Komende activiteiten"); Button("Alles") { model.selectedTab = .activities }.font(.subheadline.weight(.semibold)) }
+                    HStack { SectionHeading(title: "Komende activiteiten"); Button("Alles") { model.selectedTab = .activities }.font(.subheadline.weight(.semibold)).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }
                     if model.isLoading && model.activities.isEmpty { ProgressView().padding(30) }
                     else if model.backendUnavailableMessage != nil && model.activities.isEmpty { EmptyState(icon: "calendar.badge.exclamationmark", title: "Agenda tijdelijk niet beschikbaar", message: "Je kunt opnieuw laden zodra de appverbinding actief is.") }
                     else if model.upcoming.isEmpty { EmptyState(icon: "calendar.badge.clock", title: "Even rustig op de agenda", message: "Nieuwe activiteiten verschijnen hier zodra ze bekend zijn.") }
@@ -113,6 +131,19 @@ struct HomeView: View {
         }
         .background(Brand.background).navigationTitle("Salve Mundi").navigationBarTitleDisplayMode(.inline)
         .refreshable { await model.refresh() }
+        .task {
+            // Live attendance: while Home is visible and something runs today, refresh counts every 30 seconds.
+            var tick = 0
+            while !Task.isCancelled {
+                if model.canAdminActivities {
+                    // Full list only now and then; the 30-second live refresh uses the small counts request.
+                    if model.adminCollection == nil || tick % 10 == 0 { _ = try? await model.loadAdminActivities() }
+                    if !model.doorActivitiesToday.isEmpty { await model.refreshLiveCounts() }
+                }
+                tick += 1
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
     }
 }
 
@@ -140,7 +171,10 @@ struct ActivitiesView: View {
                 Picker("Periode", selection: $upcomingOnly) { Text("Binnenkort").tag(true); Text("Alle activiteiten").tag(false) }.pickerStyle(.segmented)
                 if model.isLoading && model.activities.isEmpty { ProgressView().padding(40) }
                 else if model.backendUnavailableMessage != nil && model.activities.isEmpty { EmptyState(icon: "calendar.badge.exclamationmark", title: "Agenda tijdelijk niet beschikbaar", message: "Je kunt opnieuw laden zodra de appverbinding actief is.") }
-                else if visible.isEmpty { EmptyState(icon: "magnifyingglass", title: search.isEmpty ? "Nog geen activiteiten" : "Niets gevonden", message: "Probeer later opnieuw of pas je zoekopdracht aan.") }
+                else if visible.isEmpty {
+                    if search.isEmpty { EmptyState(icon: "calendar", title: "Nog geen activiteiten", message: "Probeer later opnieuw.") }
+                    else { ContentUnavailableView.search(text: search) }
+                }
                 else { ForEach(visible) { activity in Button { model.selectedActivity = activity } label: { ActivityCard(activity: activity) }.buttonStyle(.plain) } }
             }.padding(20)
         }.id(upcomingOnly).background(Brand.background).navigationTitle("Activiteiten")
@@ -148,3 +182,54 @@ struct ActivitiesView: View {
         .refreshable { await model.refresh() }
     }
 }
+
+private struct AttendanceCard: View {
+    @Environment(AppModel.self) private var model
+    let items: [AdminActivity]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("VANDAAG AAN DE DEUR", systemImage: "person.badge.shield.checkmark.fill").font(.caption.weight(.semibold)).tracking(1.2).foregroundStyle(Brand.purple)
+            ForEach(items.prefix(2)) { item in
+                let checkedIn = model.liveCounts[item.id]?.checkedIn ?? item.checkedInCount
+                let confirmed = model.liveCounts[item.id]?.confirmed ?? item.confirmedCount
+                Button { Task { await model.openActivityAdministration(activityID: item.id) } } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(item.activity.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                            Spacer(minLength: 8)
+                            Text("\(checkedIn)/\(confirmed)").font(.title3.bold().monospacedDigit()).foregroundStyle(Brand.purple).contentTransition(.numericText())
+                        }
+                        ProgressView(value: Double(min(checkedIn, max(confirmed, 1))), total: Double(max(confirmed, 1))).tint(Brand.purple).accessibilityHidden(true)
+                        Text(confirmed - checkedIn > 0 ? "\(confirmed - checkedIn) nog verwacht" : "Iedereen is binnen").font(.caption).foregroundStyle(.secondary)
+                    }
+                }.buttonStyle(.plain)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(item.activity.title)
+                .accessibilityValue("\(checkedIn) van \(confirmed) aanwezig")
+                .accessibilityHint("Opent het beheer van deze activiteit")
+                .accessibilityAddTraits(.isButton)
+            }
+        }
+        .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+        .background(Brand.card, in: RoundedRectangle(cornerRadius: 22))
+        .animation(.smooth, value: items.map { model.liveCounts[$0.id]?.checkedIn ?? $0.checkedInCount })
+        .privacySensitive()
+    }
+}
+
+/// A short fade and rise when a tab comes into view, instead of the abrupt swap.
+private struct TabEntrance: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = true
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown || reduceMotion ? 0 : 14)
+            .onAppear {
+                shown = false
+                // Reduce Motion: a quick fade only, no movement.
+                withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .smooth(duration: 0.32)) { shown = true }
+            }
+    }
+}
+extension View { func tabEntrance() -> some View { modifier(TabEntrance()) } }

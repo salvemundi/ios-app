@@ -1,24 +1,63 @@
 import SwiftUI
 import WidgetKit
+import AppIntents
 #if !targetEnvironment(macCatalyst)
 import ActivityKit
 #endif
 
+
+// Widgets cannot be swiped, so paging uses interactive buttons. Only a page number is shared via the app group.
+enum WidgetPaging {
+    static let upcomingKind = "UpcomingActivities"
+    static let adminKind = "AdminActivitySignups"
+    static func key(_ kind: String) -> String { "widget.page.\(kind)" }
+    static func page(_ kind: String) -> Int { UserDefaults(suiteName: WidgetSnapshot.appGroup)?.integer(forKey: key(kind)) ?? 0 }
+    static func index(_ page: Int, count: Int) -> Int { count > 0 ? ((page % count) + count) % count : 0 }
+}
+
+struct WidgetPageIntent: AppIntent {
+    static let title: LocalizedStringResource = "Andere activiteit"
+    static let isDiscoverable = false
+    @Parameter(title: "Widget") var kind: String
+    @Parameter(title: "Stap") var delta: Int
+    init() {}
+    init(kind: String, delta: Int) { self.kind = kind; self.delta = delta }
+    func perform() async throws -> some IntentResult {
+        let defaults = UserDefaults(suiteName: WidgetSnapshot.appGroup)
+        let current = defaults?.integer(forKey: WidgetPaging.key(kind)) ?? 0
+        defaults?.set((current + delta) % 1000, forKey: WidgetPaging.key(kind))
+        return .result()
+    }
+}
+
+private struct PagerControls: View {
+    let kind: String, index: Int, count: Int
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(intent: WidgetPageIntent(kind: kind, delta: -1)) { Image(systemName: "chevron.left").frame(minWidth: 28, minHeight: 28).contentShape(Rectangle()) }.accessibilityLabel("Vorige activiteit")
+            Text("\(index + 1)/\(count)").font(.caption2.monospacedDigit()).opacity(0.8)
+            Button(intent: WidgetPageIntent(kind: kind, delta: 1)) { Image(systemName: "chevron.right").frame(minWidth: 28, minHeight: 28).contentShape(Rectangle()) }.accessibilityLabel("Volgende activiteit")
+        }.buttonStyle(.plain).font(.caption.bold())
+    }
+}
+
 private struct SalveEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetSnapshot
+    var page = 0
 }
 
 private struct SalveProvider: TimelineProvider {
     func placeholder(in context: Context) -> SalveEntry { .init(date: .now, snapshot: .empty) }
-    func getSnapshot(in context: Context, completion: @escaping (SalveEntry) -> Void) { completion(.init(date: .now, snapshot: read())) }
+    func getSnapshot(in context: Context, completion: @escaping (SalveEntry) -> Void) { completion(.init(date: .now, snapshot: read(), page: WidgetPaging.page(WidgetPaging.upcomingKind))) }
     func getTimeline(in context: Context, completion: @escaping (Timeline<SalveEntry>) -> Void) {
         let snapshot = read()
         let now = Date.now
-        var entries = [SalveEntry(date: now, snapshot: snapshot)]
+        let page = WidgetPaging.page(WidgetPaging.upcomingKind)
+        var entries = [SalveEntry(date: now, snapshot: snapshot, page: page)]
         // Drop past events at their start time even when the app hasn't opened again.
         for date in snapshot.events.compactMap(\.startsAt).filter({ $0 > now }) {
-            entries.append(SalveEntry(date: date, snapshot: snapshot))
+            entries.append(SalveEntry(date: date, snapshot: snapshot, page: page))
         }
         completion(Timeline(entries: entries.sorted { $0.date < $1.date }, policy: .after(now.addingTimeInterval(1800))))
     }
@@ -40,20 +79,24 @@ private struct UpcomingWidgetView: View {
             if events.isEmpty {
                 Spacer(); Text("Binnenkort meer").font(.headline); Text("Open de app voor de agenda.").font(.caption).opacity(0.8); Spacer()
             } else {
-                ForEach(events.prefix(family == .systemMedium ? 2 : 1)) { event in
+                let perPage = family == .systemMedium ? 2 : 1
+                let start = WidgetPaging.index(entry.page, count: events.count)
+                let visible = (0..<min(perPage, events.count)).map { events[(start + $0) % events.count] }
+                ForEach(visible) { event in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(event.title).font(.headline).lineLimit(2)
+                        Text(event.title).font(.headline).lineLimit(family == .systemSmall ? 3 : 2).minimumScaleFactor(0.8)
                         if let date = event.startsAt { Text(date.formatted(.dateTime.day().month(.abbreviated).hour().minute())).font(.caption).opacity(0.8) }
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                    if family == .systemMedium && event.id != events.prefix(2).last?.id { Divider().overlay(.white.opacity(0.2)) }
+                    if family == .systemMedium && event.id != visible.last?.id { Divider().overlay(.white.opacity(0.2)) }
                 }
                 Spacer(minLength: 0)
+                if events.count > perPage { PagerControls(kind: WidgetPaging.upcomingKind, index: start, count: events.count) }
             }
             if entry.date.timeIntervalSince(entry.snapshot.updatedAt) > 86400 { Text("Open de app om bij te werken").font(.caption2).opacity(0.65) }
         }
         .foregroundStyle(.white)
         .containerBackground(Color(red: 0.20, green: 0.13, blue: 0.24), for: .widget)
-        .widgetURL(events.first?.deepLink ?? URL(string: "salvemundi://activities"))
+        .widgetURL(events.isEmpty ? URL(string: "salvemundi://activities") : events[WidgetPaging.index(entry.page, count: events.count)].deepLink)
     }
 }
 
@@ -81,7 +124,7 @@ private struct NextBookingWidgetView: View {
 }
 
 struct UpcomingActivitiesWidget: Widget {
-    let kind = "UpcomingActivities"
+    let kind = WidgetPaging.upcomingKind
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: SalveProvider()) { UpcomingWidgetView(entry: $0) }
             .configurationDisplayName("Binnenkort bij Salve Mundi")
@@ -103,6 +146,7 @@ struct NextBookedEventWidget: Widget {
 private struct AdminCountsEntry: TimelineEntry {
     let date: Date
     let summary: AdminWidgetSummary?
+    var page = 0
 }
 
 // WidgetKit's legacy callback is not annotated Sendable. Transfer the immutable
@@ -115,17 +159,18 @@ private struct AdminCountsProvider: TimelineProvider {
     func placeholder(in context: Context) -> AdminCountsEntry { .init(date: .now, summary: nil) }
     func getSnapshot(in context: Context, completion: @escaping (AdminCountsEntry) -> Void) {
         // Gallery previews never reveal committee information.
-        completion(.init(date: .now, summary: context.isPreview ? nil : AdminWidgetSnapshotStore.read()))
+        completion(.init(date: .now, summary: context.isPreview ? nil : AdminWidgetSnapshotStore.read(), page: WidgetPaging.page(WidgetPaging.adminKind)))
     }
     func getTimeline(in context: Context, completion: @escaping (Timeline<AdminCountsEntry>) -> Void) {
         let callback = AdminTimelineCompletion(complete: completion)
         Task {
             let summary = await AdminWidgetRefresh.fetch()
             let now = Date.now
-            var entries = [AdminCountsEntry(date: now, summary: summary)]
+            let page = WidgetPaging.page(WidgetPaging.adminKind)
+            var entries = [AdminCountsEntry(date: now, summary: summary, page: page)]
             if let summary, summary.isFresh(at: now) {
                 // Redact at a fixed deadline even if iOS postpones the next network refresh.
-                entries.append(AdminCountsEntry(date: summary.displayDeadline, summary: nil))
+                entries.append(AdminCountsEntry(date: summary.displayDeadline, summary: nil, page: page))
             }
             callback.complete(Timeline(entries: entries, policy: .after(now.addingTimeInterval(15 * 60))))
         }
@@ -147,28 +192,43 @@ private struct AdminCountsView: View {
                 Image(systemName: "lock.fill").font(.caption2)
             }.foregroundStyle(Color(red: 0.95, green: 0.83, blue: 0.4))
             if let summary, !summary.items.isEmpty {
-                ForEach(summary.items.prefix(family == .systemMedium ? 2 : 1)) { activity in
-                    HStack(alignment: .top, spacing: 8) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(activity.title).font(family == .systemMedium ? .caption.weight(.semibold) : .headline).lineLimit(family == .systemMedium ? 1 : 2)
-                            if family == .systemSmall, let date = activity.startsAt {
-                                Text(date.formatted(.dateTime.day().month(.abbreviated))).font(.caption2).opacity(0.8)
+                let perPage = family == .systemMedium ? 2 : 1
+                let start = WidgetPaging.index(entry.page, count: summary.items.count)
+                let visible = (0..<min(perPage, summary.items.count)).map { summary.items[(start + $0) % summary.items.count] }
+                ForEach(visible) { activity in
+                    if family == .systemSmall {
+                        // One activity, full name first; the count gets the space it needs below.
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(activity.title).font(.subheadline.weight(.semibold)).lineLimit(3).minimumScaleFactor(0.8).fixedSize(horizontal: false, vertical: true)
+                            if let date = activity.startsAt { Text(date.formatted(.dateTime.day().month(.abbreviated))).font(.caption2).opacity(0.8) }
+                            Spacer(minLength: 0)
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text(activity.capacity.map { "\(activity.confirmedCount)/\($0)" } ?? "\(activity.confirmedCount)").font(.title.bold().monospacedDigit()).minimumScaleFactor(0.7).lineLimit(1)
+                                Text("bevestigd").font(.caption2).opacity(0.8)
                             }
-                            if activity.pendingCount > 0 {
-                                Text("\(activity.pendingCount) wacht op betaling").font(.caption2).opacity(0.8)
+                            Text(activity.pendingCount > 0 ? "\(activity.checkedInCount) ingecheckt · \(activity.pendingCount) open" : "\(activity.checkedInCount) ingecheckt").font(.caption2).opacity(0.8).lineLimit(1).minimumScaleFactor(0.8)
+                        }.privacySensitive()
+                    } else {
+                        HStack(alignment: .top, spacing: 8) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(activity.title).font(.caption.weight(.semibold)).lineLimit(2)
+                                if activity.pendingCount > 0 { Text("\(activity.pendingCount) wacht op betaling").font(.caption2).opacity(0.8) }
+                                Text("\(activity.checkedInCount) ingecheckt").font(.caption2).opacity(0.8)
                             }
-                            Text("\(activity.checkedInCount) ingecheckt").font(.caption2).opacity(0.8)
-                        }
-                        Spacer(minLength: 0)
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(activity.capacity.map { "\(activity.confirmedCount)/\($0)" } ?? "\(activity.confirmedCount)")
-                                .font(family == .systemMedium ? .headline.monospacedDigit() : .title2.bold().monospacedDigit())
-                            Text("bevestigd").font(.caption2).opacity(0.8)
-                        }
-                    }.privacySensitive()
+                            Spacer(minLength: 0)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(activity.capacity.map { "\(activity.confirmedCount)/\($0)" } ?? "\(activity.confirmedCount)").font(.headline.monospacedDigit())
+                                Text("bevestigd").font(.caption2).opacity(0.8)
+                            }
+                        }.privacySensitive()
+                    }
                 }
-                Spacer(minLength: 0)
-                Text("Bijgewerkt \(summary.fetchedAt.formatted(.dateTime.hour().minute()))").font(.caption2).opacity(0.65)
+                if family != .systemSmall { Spacer(minLength: 0) }
+                HStack {
+                    if summary.items.count > perPage { PagerControls(kind: WidgetPaging.adminKind, index: start, count: summary.items.count) }
+                    Spacer(minLength: 0)
+                    if family == .systemMedium { Text("Bijgewerkt \(summary.fetchedAt.formatted(.dateTime.hour().minute()))").font(.caption2).opacity(0.65) }
+                }
             } else {
                 Spacer(minLength: 0)
                 Text(summary == nil ? "Open de app" : "Geen activiteiten").font(.headline)
@@ -178,12 +238,12 @@ private struct AdminCountsView: View {
         }
         .foregroundStyle(.white)
         .containerBackground(Color(red: 0.20, green: 0.13, blue: 0.24), for: .widget)
-        .widgetURL(family == .systemSmall ? summary?.items.first?.deepLink ?? URL(string: "salvemundi://admin/activities") : URL(string: "salvemundi://admin/activities"))
+        .widgetURL(family == .systemSmall && summary != nil && !(summary?.items.isEmpty ?? true) ? summary?.items[WidgetPaging.index(entry.page, count: summary?.items.count ?? 0)].deepLink : URL(string: "salvemundi://admin/activities"))
     }
 }
 
 struct AdminActivitySignupsWidget: Widget {
-    let kind = "AdminActivitySignups"
+    let kind = WidgetPaging.adminKind
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: AdminCountsProvider()) { AdminCountsView(entry: $0) }
             .configurationDisplayName("Activiteiten: aanmeldingen")

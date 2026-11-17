@@ -13,6 +13,9 @@ enum Brand {
     static let gold = Color(hex: 0xF4D466)
     static let background = Color(uiColor: .systemGroupedBackground)
     static let card = Color(uiColor: .secondarySystemGroupedBackground)
+    /// Status text colours that keep enough contrast on light backgrounds (system green/orange are too light there).
+    static let success = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .systemGreen : UIColor(red: 0.07, green: 0.40, blue: 0.19, alpha: 1) })
+    static let caution = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .systemOrange : UIColor(red: 0.66, green: 0.33, blue: 0.0, alpha: 1) })
 }
 
 struct PrimaryButtonStyle: ButtonStyle {
@@ -81,13 +84,13 @@ struct ActivityCard: View {
                 if let ticket = registrationTicket {
                     Label(ticket.isValid ? "Aangemeld" : "Betaling in behandeling", systemImage: ticket.isValid ? "checkmark.circle.fill" : "clock")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(ticket.isValid ? Color.green : Color.orange)
+                        .foregroundStyle(ticket.isValid ? Brand.success : Brand.caution)
                     if model.isOffline { Text("Status bij laatste verbinding").font(.caption2).foregroundStyle(.secondary) }
                 }
                 Text(activity.title).font(featured ? .title3.bold() : .headline).foregroundStyle(.primary).lineLimit(2)
                 HStack(spacing: 12) {
                     if let date = activity.startsAt { Label(date.formatted(.dateTime.hour().minute()), systemImage: "clock") }
-                    if let location = activity.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").lineLimit(1) }
+                    if let location = activity.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").lineLimit(2).fixedSize(horizontal: false, vertical: true) }
                 }.font(.caption).foregroundStyle(.secondary)
                 if activity.membersOnly { Label("Voor leden", systemImage: "person.crop.circle.badge.checkmark").font(.caption.weight(.medium)).foregroundStyle(Brand.purple) }
             }.padding(18).frame(maxWidth: .infinity, alignment: .leading)

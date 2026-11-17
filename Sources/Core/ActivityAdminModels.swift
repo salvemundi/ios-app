@@ -170,3 +170,48 @@ public struct AdminDoorTotals: Equatable, Sendable {
         present = confirmed.filter(\.checkedIn).count
     }
 }
+
+// MARK: - Door mode support
+
+/// Door mode groups activities by calendar day so tonight's activity is never "past".
+public struct DoorGroups: Sendable {
+    public let today: [AdminActivity], upcoming: [AdminActivity], past: [AdminActivity]
+    public init(_ all: [AdminActivity], search: String = "", now: Date = .now, calendar: Calendar = .current) {
+        let items = all.filter { $0.canCheckIn && (search.isEmpty || $0.activity.title.localizedCaseInsensitiveContains(search)) }
+        today = items.filter { $0.activity.isToday(at: now, calendar: calendar) }.sorted { ($0.activity.startsAt ?? .distantPast) < ($1.activity.startsAt ?? .distantPast) }
+        upcoming = items.filter { !$0.activity.isToday(at: now, calendar: calendar) && !$0.activity.endedBeforeToday(at: now, calendar: calendar) }.sorted { ($0.activity.startsAt ?? .distantFuture) < ($1.activity.startsAt ?? .distantFuture) }
+        let older = items.filter { !$0.activity.isToday(at: now, calendar: calendar) && $0.activity.endedBeforeToday(at: now, calendar: calendar) }.sorted { ($0.activity.startsAt ?? .distantPast) > ($1.activity.startsAt ?? .distantPast) }
+        if search.isEmpty {
+            let cutoff = calendar.date(byAdding: .day, value: -14, to: now) ?? .distantPast
+            past = Array(older.filter { ($0.activity.endsAt ?? $0.activity.startsAt ?? .distantPast) >= cutoff }.prefix(5))
+        } else { past = older }
+    }
+    /// With exactly one activity today, door mode can open straight on it.
+    public var autoSelected: AdminActivity? { today.count == 1 ? today.first : nil }
+}
+
+/// A scan made without a connection. It is only a *claim* until the server confirms it: the server stays the authority on QR validity.
+public struct PendingScan: Codable, Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let activityID: String
+    public let token: String
+    public let scannedAt: Date
+    public init(id: UUID = UUID(), activityID: String, token: String, scannedAt: Date = .now) {
+        self.id = id; self.activityID = activityID; self.token = token; self.scannedAt = scannedAt
+    }
+}
+
+public struct PendingScanQueue: Codable, Equatable, Sendable {
+    public private(set) var items: [PendingScan] = []
+    public init() {}
+    public static let maxItems = 500
+    /// Returns false for a repeated token for the same activity or a full queue.
+    @discardableResult
+    public mutating func enqueue(_ scan: PendingScan) -> Bool {
+        guard items.count < Self.maxItems, !items.contains(where: { $0.activityID == scan.activityID && $0.token == scan.token }) else { return false }
+        items.append(scan); return true
+    }
+    public mutating func remove(_ id: UUID) { items.removeAll { $0.id == id } }
+    public func count(for activityID: String) -> Int { items.filter { $0.activityID == activityID }.count }
+    public func items(for activityID: String) -> [PendingScan] { items.filter { $0.activityID == activityID }.sorted { $0.scannedAt < $1.scannedAt } }
+}

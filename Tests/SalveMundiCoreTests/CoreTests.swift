@@ -182,3 +182,63 @@ struct APIClientTests {
     }
 
 }
+
+@Suite struct DoorAndRoutingTests {
+    private func activity(_ id: String, start: Date, end: Date? = nil) -> Activity {
+        Activity(id: id, title: "Act \(id)", description: nil, startsAt: start, endsAt: end, location: nil, imageURL: nil, memberPriceCents: 0, guestPriceCents: 0, membersOnly: false, registrationDeadline: nil, capacity: nil, signupCount: nil, kind: "event", registrationViaWebsite: false, websiteURL: URL(string: "https://acc.salvemundi.nl/activiteiten/1")!)
+    }
+    private func admin(_ activity: Activity, canCheckIn: Bool = true) throws -> AdminActivity {
+        let data = try JSONCoding.encoder().encode(activity)
+        let json = #"{"activity":"# + String(decoding: data, as: UTF8.self) + #","status":"published","committeeID":null,"committeeName":null,"confirmedCount":10,"pendingCount":0,"checkedInCount":4,"canEdit":false,"canDelete":false,"canManageSignups":false,"canCheckIn":\#(canCheckIn)}"#
+        return try JSONCoding.decoder().decode(AdminActivity.self, from: Data(json.utf8))
+    }
+
+    @Test func doorGroupsSplitTodayUpcomingAndRecentPast() throws {
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(identifier: "Europe/Amsterdam")!
+        let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 17, hour: 22))!
+        let day: (Int) -> Date = { calendar.date(byAdding: .day, value: $0, to: now)! }
+        let items = try [admin(activity("event:1", start: day(0).addingTimeInterval(-7200))), admin(activity("event:2", start: day(3))),
+                         admin(activity("event:3", start: day(-3))), admin(activity("event:4", start: day(-40))), admin(activity("event:5", start: day(0)), canCheckIn: false)]
+        let groups = DoorGroups(items, now: now, calendar: calendar)
+        #expect(groups.today.map(\.id) == ["event:1"])
+        #expect(groups.autoSelected?.id == "event:1")
+        #expect(groups.upcoming.map(\.id) == ["event:2"])
+        #expect(groups.past.map(\.id) == ["event:3"])
+        #expect(DoorGroups(items, search: "event:4", now: now, calendar: calendar).past.map(\.id) == ["event:4"])
+    }
+
+    @Test func pendingScanQueueDedupesAndCounts() throws {
+        var queue = PendingScanQueue()
+        let first = queue.enqueue(PendingScan(activityID: "event:1", token: "a"))
+        let duplicate = queue.enqueue(PendingScan(activityID: "event:1", token: "a"))
+        let otherActivity = queue.enqueue(PendingScan(activityID: "event:2", token: "a"))
+        #expect(first && !duplicate && otherActivity)
+        #expect(queue.count(for: "event:1") == 1)
+        let id = queue.items(for: "event:1")[0].id
+        queue.remove(id)
+        #expect(queue.items.count == 1)
+        let decoded = try JSONCoding.decoder().decode(PendingScanQueue.self, from: JSONCoding.encoder().encode(queue))
+        // Dates are stored with second precision, so compare identity rather than exact timestamps.
+        #expect(decoded.items.map(\.id) == queue.items.map(\.id) && decoded.items.map(\.token) == queue.items.map(\.token))
+    }
+
+    @Test func notificationRoutesByKind() {
+        func route(_ payload: [AnyHashable: Any]) -> DeepLink? { NotificationRoute.destination(payload).flatMap { DeepLink(url: $0) } }
+        #expect(route(["activityID": "event:7", "kind": "organizerAlmostFull"]) == .adminActivities("event:7"))
+        #expect(route(["activityID": "event:7", "kind": "payments"]) == .ticketForActivity("event:7"))
+        #expect(route(["activityID": "event:7", "kind": "activityAnnouncements"]) == .activity("event:7"))
+        #expect(route(["activityID": "event:7"]) == .activity("event:7"))
+        #expect(route(["url": "salvemundi://tickets"]) == .tickets)
+        #expect(route(["activityID": "../evil", "kind": "payments"]) == nil)
+        #expect(route(["url": "https://evil.example/x"]) == nil)
+    }
+
+    @Test func ticketWindowCoversBeforeAndAfterStart() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        #expect(TicketWindow.isNear(start: start, now: start.addingTimeInterval(-3600)))
+        #expect(TicketWindow.isNear(start: start, now: start.addingTimeInterval(7200)))
+        #expect(!TicketWindow.isNear(start: start, now: start.addingTimeInterval(-3 * 3600)))
+        #expect(!TicketWindow.isNear(start: start, now: start.addingTimeInterval(4 * 3600)))
+        #expect(!TicketWindow.isNear(start: nil))
+    }
+}

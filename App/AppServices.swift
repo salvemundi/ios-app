@@ -133,7 +133,7 @@ enum LocalCache {
     }
     static func remove(_ name: String) { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
     static func clearPrivate() {
-        for name in ["tickets.json", "profile.json", "updated.json", "adminAccess.json"] { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
+        for name in ["tickets.json", "profile.json", "updated.json", "adminAccess.json", "adminActivities.json", "pendingScans.json"] { try? FileManager.default.removeItem(at: directory.appendingPathComponent(name)) }
     }
 }
 
@@ -238,3 +238,58 @@ final class LiveEventController {
     private static let startedKey = "liveEvent.autoStarted"
 }
 #endif
+
+// MARK: - Diagnostics (on-device only; shared by the member, never uploaded automatically)
+@preconcurrency import MetricKit
+
+/// Collects Apple's crash/hang diagnostics and a short log of error *codes*. No tokens, names, emails or messages are stored.
+final class Diagnostics: NSObject, MXMetricManagerSubscriber, @unchecked Sendable {
+    static let shared = Diagnostics()
+    private let queue = DispatchQueue(label: "nl.salvemundi.diagnostics")
+    private var directory: URL {
+        let url = URL.applicationSupportDirectory.appendingPathComponent("SalveMundi/diagnostics", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+    func start() { MXMetricManager.shared.add(self) }
+
+    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        queue.async {
+            for payload in payloads {
+                let name = "diagnostic-\(Int(Date().timeIntervalSince1970))-\(UUID().uuidString.prefix(6)).json"
+                try? payload.jsonRepresentation().write(to: self.directory.appendingPathComponent(name), options: [.atomic, .completeFileProtection])
+            }
+            self.prune()
+        }
+    }
+    func didReceive(_ payloads: [MXMetricPayload]) {}
+
+    /// Records what went wrong, not who it happened to.
+    func log(_ event: String) {
+        queue.async {
+            let file = self.directory.appendingPathComponent("events.log")
+            let line = "\(ISO8601DateFormatter().string(from: .now)) \(event)\n"
+            var lines = ((try? String(contentsOf: file, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+            lines.append(String(line.dropLast()))
+            try? (lines.suffix(100).joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+        }
+    }
+    private func prune() {
+        let files = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []).filter { $0.lastPathComponent.hasPrefix("diagnostic-") }
+            .sorted { ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) > ((try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
+        for file in files.dropFirst(10) { try? FileManager.default.removeItem(at: file) }
+    }
+    /// Plain-text report the member can send to the association.
+    func report() -> String {
+        queue.sync {
+            let info = Bundle.main.infoDictionary
+            var text = "Salve Mundi app \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))\n"
+            text += "\(UIDevice.current.systemName) \(UIDevice.current.systemVersion), \(UIDevice.current.model)\n\n"
+            text += "Recente fouten:\n" + ((try? String(contentsOf: directory.appendingPathComponent("events.log"), encoding: .utf8)) ?? "geen") + "\n"
+            let files = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []).filter { $0.lastPathComponent.hasPrefix("diagnostic-") }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+            text += "\nCrash- en hangrapporten van iOS: \(files.count)\n"
+            for file in files.prefix(3) { text += "\n--- \(file.lastPathComponent)\n" + String(decoding: (try? Data(contentsOf: file).prefix(20_000)) ?? Data(), as: UTF8.self) + "\n" }
+            return text
+        }
+    }
+}

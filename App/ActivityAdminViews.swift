@@ -10,23 +10,12 @@ struct ActivityAdminRootView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var path: [String] = []
     var body: some View {
-        Group {
-            if model.canAdminActivities {
-                NavigationStack(path: $path) { ActivityAdminListView(initialActivityID: initialActivityID, embedded: embedded, path: $path) }
-                    .id(model.adminRevision)
-            } else {
-                NavigationStack {
-                    VStack(spacing: 20) {
-                        if model.adminAccessLoading { ProgressView("Toegang controleren…") }
-                        else {
-                            EmptyState(icon: "lock.shield", title: "Geen toegang tot beheer", message: model.adminMessage ?? "Je rechten worden bij Salve Mundi gecontroleerd. Deelnemers zijn alleen online beschikbaar.")
-                            Button("Toegang opnieuw controleren") { Task { await model.refreshActivityAdminAccess() } }.buttonStyle(PrimaryButtonStyle())
-                        }
-                    }.padding(20).navigationTitle("Activiteitenbeheer")
-                        .toolbar { if !embedded { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } } } }
-                }
-            }
-        }.privacySensitive()
+        // One permanent stack with a permanent root. Neither `.id(adminRevision)` nor swapping stacks/roots when access
+        // changes is safe: UIKit crashes in -[UINavigationBar layoutSubviews] or leaves the tab empty (black screen).
+        NavigationStack(path: $path) { ActivityAdminListView(initialActivityID: initialActivityID, embedded: embedded, path: $path) }
+            .onChange(of: model.adminRevision) { _, _ in path = [] }
+        // No `.privacySensitive()` on the stack itself: when the phone locks, iOS redacts privacy-sensitive views,
+        // which rebuilt this NavigationStack while visible and crashed UIKit. The list content is marked instead.
     }
 }
 
@@ -53,6 +42,37 @@ private struct ActivityAdminListView: View {
         }
     }
     var body: some View {
+        Group {
+            if model.canAdminActivities { content } else { noAccess }
+        }
+        .privacySensitive()
+        .navigationTitle("Activiteitenbeheer").navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $search, prompt: "Zoek een activiteit")
+        .navigationDestination(for: String.self) { ActivityAdminDetailView(activityID: $0) }
+        .toolbar {
+            if !embedded { ToolbarItem(placement: .topBarLeading) { Button("Sluiten") { dismiss() } } }
+            if model.canAdminActivities, model.adminCollection?.canCreate == true { ToolbarItem(placement: .topBarTrailing) { Button("Nieuw", systemImage: "plus") { showCreate = true } } }
+        }
+        .task { await load(); if let id = initialActivityID { path = [id] } }
+        // Reset local state in place; recreating this view (e.g. via `.id`) re-parents its search-enabled navigation item and crashes UIKit.
+        .onChange(of: model.adminRevision) { _, _ in
+            search = ""; period = "upcoming"; committeeID = nil; error = nil; showCreate = false; showScannerPicker = false
+            Task { await load() }
+        }
+        .sheet(isPresented: $showScannerPicker, onDismiss: { Task { await load() } }) { NavigationStack { ActivityAdminScannerPicker() } }
+        .sheet(isPresented: $showCreate) { NavigationStack { ActivityAdminEditor(detail: nil) { _ in Task { await load() } } } }
+        .refreshable { await load() }
+    }
+    private var noAccess: some View {
+        VStack(spacing: 20) {
+            if model.adminAccessLoading { ProgressView("Toegang controleren…") }
+            else {
+                EmptyState(icon: "lock.shield", title: "Geen toegang tot beheer", message: model.adminMessage ?? "Je rechten worden bij Salve Mundi gecontroleerd. Deelnemers zijn alleen online beschikbaar.")
+                Button("Toegang opnieuw controleren") { Task { await model.refreshActivityAdminAccess() } }.buttonStyle(PrimaryButtonStyle())
+            }
+        }.padding(20).frame(maxHeight: .infinity)
+    }
+    private var content: some View {
         List {
             if let error { AdminErrorRow(message: error, retry: { Task { await load() } }) }
             Section {
@@ -70,7 +90,7 @@ private struct ActivityAdminListView: View {
             }
             Section("Jouw activiteiten") {
                 if loading && model.adminCollection == nil { ProgressView("Activiteiten laden…") }
-                else if activities.isEmpty { Text("Geen activiteiten binnen deze selectie.").foregroundStyle(.secondary) }
+                else if activities.isEmpty { if search.isEmpty { Text("Geen activiteiten binnen deze selectie.").foregroundStyle(.secondary) } else { ContentUnavailableView.search(text: search) } }
                 ForEach(activities) { item in
                     NavigationLink(value: item.id) {
                         VStack(alignment: .leading, spacing: 8) {
@@ -84,17 +104,6 @@ private struct ActivityAdminListView: View {
             }
             Section { Text("Rechten en aantallen komen rechtstreeks van de server. Er worden geen deelnemerslijsten offline opgeslagen.").font(.caption).foregroundStyle(.secondary) }
         }
-        .navigationTitle("Activiteitenbeheer").navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $search, prompt: "Zoek een activiteit")
-        .navigationDestination(for: String.self) { ActivityAdminDetailView(activityID: $0) }
-        .toolbar {
-            if !embedded { ToolbarItem(placement: .topBarLeading) { Button("Sluiten") { dismiss() } } }
-            if model.adminCollection?.canCreate == true { ToolbarItem(placement: .topBarTrailing) { Button("Nieuw", systemImage: "plus") { showCreate = true } } }
-        }
-        .task { await load(); if let id = initialActivityID { path = [id] } }
-        .sheet(isPresented: $showScannerPicker, onDismiss: { Task { await load() } }) { NavigationStack { ActivityAdminScannerPicker() } }
-        .sheet(isPresented: $showCreate) { NavigationStack { ActivityAdminEditor(detail: nil) { _ in Task { await load() } } } }
-        .refreshable { await load() }
     }
     private func load() async {
         loading = true; error = nil; defer { loading = false }
@@ -304,7 +313,7 @@ private struct ActivityAdminRegistrationsView: View {
                     Picker("Lidmaatschap", selection: $membership) { Text("Iedereen").tag("all"); Text("Leden").tag("members"); Text("Gasten").tag("guests") }.pickerStyle(.segmented)
                 }
                 Section("\(visible.count) deelnemers") {
-                    if visible.isEmpty { Text("Geen deelnemers binnen deze selectie.").foregroundStyle(.secondary) }
+                    if visible.isEmpty { if query.isEmpty { Text("Geen deelnemers binnen deze selectie.").foregroundStyle(.secondary) } else { ContentUnavailableView.search(text: query) } }
                     ForEach(visible) { registration in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .top) {
@@ -543,12 +552,13 @@ struct ActivityAdminScannerPicker: View {
     @State private var search = ""
     @State private var loading = false
     @State private var error: String?
-    private var matching: [AdminActivity] {
-        (model.adminCollection?.activities ?? []).filter { $0.canCheckIn && (search.isEmpty || $0.activity.title.localizedCaseInsensitiveContains(search)) }
-    }
-    private var today: [AdminActivity] { matching.filter { $0.activity.isToday() }.sorted { ($0.activity.startsAt ?? .distantPast) < ($1.activity.startsAt ?? .distantPast) } }
-    private var upcoming: [AdminActivity] { matching.filter { !$0.activity.isToday() && !$0.activity.endedBeforeToday() }.sorted { ($0.activity.startsAt ?? .distantFuture) < ($1.activity.startsAt ?? .distantFuture) } }
-    private var past: [AdminActivity] { matching.filter { !$0.activity.isToday() && $0.activity.endedBeforeToday() }.sorted { ($0.activity.startsAt ?? .distantPast) > ($1.activity.startsAt ?? .distantPast) } }
+    @State private var autoID: String?
+    @State private var autoDone = false
+    private var groups: DoorGroups { DoorGroups(model.adminCollection?.activities ?? [], search: search) }
+    private var today: [AdminActivity] { groups.today }
+    private var upcoming: [AdminActivity] { groups.upcoming }
+    private var past: [AdminActivity] { groups.past }
+    private var matching: [AdminActivity] { groups.today + groups.upcoming + groups.past }
     var body: some View {
         Group {
             if model.canAdminActivities {
@@ -559,11 +569,18 @@ struct ActivityAdminScannerPicker: View {
                     doorSection("Vandaag", today, past: false)
                     doorSection("Binnenkort", upcoming, past: false)
                     doorSection("Afgelopen · niet van vandaag", past, past: true)
-                    if matching.isEmpty && !loading && error == nil { Text("Geen toegestane activiteiten gevonden.").foregroundStyle(.secondary) }
+                    if search.isEmpty && !past.isEmpty { Text("Alleen recente activiteiten (14 dagen, max. 5). Zoek om oudere te vinden.").font(.caption).foregroundStyle(.secondary) }
+                    if matching.isEmpty && !loading && error == nil { if search.isEmpty { Text("Geen toegestane activiteiten gevonden.").foregroundStyle(.secondary) } else { ContentUnavailableView.search(text: search) } }
                 }
             } else { EmptyState(icon: "lock.shield", title: "Geen toegang", message: "Je hebt geen toegang tot tickets scannen.") }
         }
         .navigationTitle("Deurmodus").navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $autoID) { ActivityAdminScannerSheet(activityID: $0) }
+        .onChange(of: groups.autoSelected?.id) { _, id in
+            // Exactly one activity today: go straight to its scanner (once per opening).
+            if !autoDone, search.isEmpty, let id { autoDone = true; autoID = id }
+        }
+        .onAppear { if !autoDone, search.isEmpty, let id = groups.autoSelected?.id { autoDone = true; autoID = id } }
         .searchable(text: $search, prompt: "Zoek een activiteit")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } } }
         .task { await load() }

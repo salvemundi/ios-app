@@ -9,6 +9,8 @@ struct ActivityAdminScannerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("door.sound") private var doorSoundOn = true
+    @ScaledMetric(relativeTo: .largeTitle) private var statusIconSize = 44
+    @ScaledMetric(relativeTo: .largeTitle) private var countSize = 32
     @State private var processing = false
     @State private var roster: AdminRegistrations?
     @State private var rosterError: String?
@@ -17,7 +19,10 @@ struct ActivityAdminScannerSheet: View {
     @State private var showRoster = false
     @State private var requestVersion = 0
     @State private var visible = false
-    private var authorized: Bool { model.canAdminActivities && roster?.activity.canCheckIn == true }
+    private var offlineRejected: [String] { model.scanRejections[activityID] ?? [] }
+    private var canCheckIn: Bool { roster?.activity.canCheckIn ?? model.adminCollection?.activities.first(where: { $0.id == activityID })?.canCheckIn ?? false }
+    private var authorized: Bool { model.canAdminActivities && canCheckIn }
+    private var pendingCount: Int { model.pendingScans.count(for: activityID) }
     private var totals: AdminDoorTotals { AdminDoorTotals(registrations: roster?.registrations ?? []) }
     @State private var statusTitle: String?
     @State private var statusMessage = ""
@@ -37,6 +42,16 @@ struct ActivityAdminScannerSheet: View {
                 }
             } else if loadingRoster { ProgressView("Aanmeldingen laden…") }
             if let rosterError { Text(rosterError).font(.caption).foregroundStyle(.red); Button("Opnieuw laden") { Task { await loadRoster() } } }
+            if pendingCount > 0 {
+                Label("\(pendingCount) offline scan\(pendingCount == 1 ? "" : "s") wacht\(pendingCount == 1 ? "" : "en") op controle door de server", systemImage: "icloud.slash").font(.caption.weight(.semibold)).foregroundStyle(.orange).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !offlineRejected.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Label("\(offlineRejected.count) offline scan\(offlineRejected.count == 1 ? "" : "s") niet geldig", systemImage: "exclamationmark.triangle.fill").font(.caption.weight(.semibold))
+                    Text(Array(Set(offlineRejected)).sorted().joined(separator: " · ")).font(.caption2)
+                    Button("Begrepen") { model.scanRejections[activityID] = nil }.font(.caption2.weight(.semibold))
+                }.foregroundStyle(.red).frame(maxWidth: .infinity, alignment: .leading)
+            }
             if let updated = rosterUpdatedAt { Text("Bijgewerkt \(updated.formatted(.dateTime.hour().minute())) · controle elke 20 seconden").font(.caption2).foregroundStyle(.secondary) }
             ZStack {
                 CameraScannerView(enabled: authorized && scenePhase == .active && !showRoster && !processing && statusTitle == nil && cameraError == nil, onCode: { token in
@@ -49,7 +64,7 @@ struct ActivityAdminScannerSheet: View {
                 if let title = statusTitle {
                     VStack(spacing: 12) {
                         Image(systemName: statusKind == "success" ? "checkmark.circle.fill" : statusKind == "warning" ? "exclamationmark.circle.fill" : "xmark.circle.fill")
-                            .font(.system(size: 44)).foregroundStyle(statusKind == "success" ? .green : statusKind == "warning" ? .orange : .red)
+                            .font(.system(size: statusIconSize)).foregroundStyle(statusKind == "success" ? .green : statusKind == "warning" ? .orange : .red)
                         Text(title).font(.title2.bold())
                         Text(statusMessage).multilineTextAlignment(.center)
                         Text("De scanner gaat automatisch verder.").font(.caption).foregroundStyle(.secondary)
@@ -103,7 +118,7 @@ struct ActivityAdminScannerSheet: View {
         .privacySensitive()
     }
     private func doorCount(_ title: String, value: Int, color: Color) -> some View {
-        VStack(spacing: 4) { Text(value, format: .number).font(.system(size: 32, weight: .bold, design: .rounded)).foregroundStyle(color).monospacedDigit(); Text(title).font(.caption).foregroundStyle(.secondary) }
+        VStack(spacing: 4) { Text(value, format: .number).font(.system(size: countSize, weight: .bold, design: .rounded)).foregroundStyle(color).monospacedDigit(); Text(title).font(.caption).foregroundStyle(.secondary) }
             .frame(maxWidth: .infinity).padding(.vertical, 12).background(Brand.card, in: RoundedRectangle(cornerRadius: 16))
     }
     private func clearPrivateState() {
@@ -120,11 +135,18 @@ struct ActivityAdminScannerSheet: View {
             guard !Task.isCancelled, visible, version == requestVersion, revision == model.adminRevision, token == model.session?.token, model.canAdminActivities else { return }
             guard value.activity.canCheckIn else { clearPrivateState(); rosterError = "Je hebt geen toegang tot inchecken voor deze activiteit."; return }
             roster = value; rosterUpdatedAt = .now; rosterError = nil
+            await syncPending()
         } catch is CancellationError { }
         catch {
             guard visible, version == requestVersion, revision == model.adminRevision, token == model.session?.token else { return }
-            rosterError = "Aanwezigheid kon niet worden vernieuwd. Scan alleen met een werkende verbinding."
+            rosterError = "Geen verbinding. Scans worden bewaard en gecontroleerd zodra je weer online bent."
         }
+    }
+    private func syncPending() async {
+        let before = pendingCount
+        guard before > 0 else { return }
+        await model.syncAllPendingScans()
+        if pendingCount < before { await loadRoster() }
     }
     private func apply(_ registration: AdminRegistration) {
         requestVersion += 1; loadingRoster = false
@@ -160,7 +182,12 @@ struct ActivityAdminScannerSheet: View {
                 case "unpaid_registration": showStatus("Nog niet betaald", message: "Deze deelnemer is niet ingecheckt.", kind: "warning")
                 default: showStatus("Niet ingecheckt", message: problem.message, kind: "error")
                 }
-            } else { showStatus("Controle niet gelukt", message: "Controleer de verbinding en scan opnieuw. De aanwezigheid kon niet worden bevestigd.", kind: "error") }
+            } else if error is URLError {
+                // Server stays the authority: this is a claim to be verified later, and the door decision is the volunteer's.
+                if model.queueOfflineScan(activityID: activityID, token: token) {
+                    showStatus("Offline opgeslagen", message: "Nog niet gecontroleerd. Laat alleen toe als het ticket klopt; de server controleert zodra er verbinding is.", kind: "warning")
+                } else { showStatus("Al offline gescand", message: "Deze code staat al in de wachtrij.", kind: "warning") }
+            } else { showStatus("Controle niet gelukt", message: "De aanwezigheid kon niet worden bevestigd. Scan opnieuw.", kind: "error") }
         }
     }
 }
@@ -185,7 +212,7 @@ private struct DoorRosterView: View {
                 List {
                     if loading { ProgressView("Aanmeldingen vernieuwen…") }
                     if let error { Text(error).foregroundStyle(.red) }
-                    if registrations.isEmpty { Text("Geen deelnemers gevonden.").foregroundStyle(.secondary) }
+                    if registrations.isEmpty { if query.isEmpty { Text("Nog geen deelnemers.").foregroundStyle(.secondary) } else { ContentUnavailableView.search(text: query) } }
                     ForEach(registrations) { registration in
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 5) {

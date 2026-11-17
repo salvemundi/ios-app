@@ -51,10 +51,50 @@ private struct TicketRow: View {
                 if past { Label("Afgelopen", systemImage: "clock.arrow.circlepath").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                 Text(ticket.title).font(.headline).foregroundStyle(.primary)
                 if let date = ticket.startsAt { Text(date.formatted(.dateTime.day().month(.abbreviated).hour().minute())).font(.caption).foregroundStyle(.secondary) }
-                Label(ticket.statusLabel, systemImage: ticket.isValid ? "checkmark.circle.fill" : "clock").font(.caption.weight(.medium)).foregroundStyle(ticket.isValid ? .green : .secondary)
+                Label(ticket.statusLabel, systemImage: ticket.isValid ? "checkmark.circle.fill" : "clock").font(.caption.weight(.medium)).foregroundStyle(ticket.isValid ? Brand.success : Color.secondary)
             }
             Spacer(minLength: 0); Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
         }.padding(18).background(Brand.card, in: RoundedRectangle(cornerRadius: 24)).saturation(past ? 0 : 1)
+    }
+}
+
+/// Raises the screen to full brightness while a QR code is on screen, so it scans reliably.
+/// Stops managing as soon as the member changes the brightness themselves, and restores the old level when the ticket closes.
+@MainActor
+final class TicketBrightness {
+    static let shared = TicketBrightness()
+    private var original: CGFloat?
+    private var applied: CGFloat?
+    private var overriddenByUser = false
+    private var observer: NSObjectProtocol?
+    private var screen: UIScreen? { UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first }
+
+    func boost() {
+        #if !targetEnvironment(macCatalyst)
+        guard !overriddenByUser, original == nil, let screen else { return }
+        original = screen.brightness
+        screen.brightness = 1
+        applied = 1
+        observer = NotificationCenter.default.addObserver(forName: UIScreen.brightnessDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.brightnessChanged() }
+        }
+        #endif
+    }
+    /// Called when the ticket screen goes away or the app leaves the foreground.
+    func pause() { release(restore: true) }
+    /// Called when the ticket screen is gone for good.
+    func end() { release(restore: true); overriddenByUser = false }
+
+    private func brightnessChanged() {
+        guard let screen, let applied, abs(screen.brightness - applied) > 0.02 else { return }
+        overriddenByUser = true       // the member chose a level: leave it alone
+        release(restore: false)
+    }
+    private func release(restore: Bool) {
+        if restore, let original, let screen { screen.brightness = original }
+        original = nil; applied = nil
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
     }
 }
 
@@ -62,6 +102,8 @@ struct TicketDetailView: View {
     let ticket: Ticket
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    private var showsQR: Bool { model.signedIn && model.tickets.contains(where: { $0.id == current.id }) && current.isValid && !(current.qrToken ?? "").isEmpty }
     private var current: Ticket { model.tickets.first(where: { $0.id == ticket.id }) ?? ticket }
     var body: some View {
         ScrollView {
@@ -88,6 +130,12 @@ struct TicketDetailView: View {
             }.padding(20)
         }.background(Brand.background).navigationTitle("Ticket").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten", systemImage: "xmark", action: { dismiss() }).labelStyle(.iconOnly) } }
+        .onAppear { if showsQR { TicketBrightness.shared.boost() } }
+        .onDisappear { TicketBrightness.shared.end() }
+        .onChange(of: showsQR) { _, shows in if shows { TicketBrightness.shared.boost() } else { TicketBrightness.shared.pause() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { if showsQR { TicketBrightness.shared.boost() } } else { TicketBrightness.shared.pause() }
+        }
         .privacySensitive()
     }
 

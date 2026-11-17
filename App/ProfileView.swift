@@ -4,6 +4,7 @@ struct ProfileView: View {
     @Environment(AppModel.self) private var model
     @State private var editing = false
     @State private var confirmLogout = false
+    @AppStorage("ticket.autoOpen") private var ticketAutoOpen = true
     var body: some View {
         Group {
             if let profile = model.profile, model.signedIn {
@@ -23,6 +24,9 @@ struct ProfileView: View {
                             Button { Task { await model.openActivityAdministration() } } label: { Label("Activiteiten beheren", systemImage: "calendar.badge.gearshape") }
                         }
                     }
+                    Section {
+                        Toggle("Ticket automatisch openen bij een activiteit", isOn: $ticketAutoOpen)
+                    } header: { Text("Tickets") } footer: { Text("Je ticket opent vanzelf vanaf 2 uur voor de start van je activiteit, zodat je het bij de deur meteen bij de hand hebt. Deze keuze geldt alleen op dit toestel.") }
                     Section("Meldingen") {
                         Text(model.notificationStatus).font(.footnote).foregroundStyle(.secondary)
                         if !model.notificationPreferencesAvailable { Text("Meldingsvoorkeuren zijn nog niet geladen. Ververs de app en probeer het opnieuw.").font(.caption).foregroundStyle(.secondary) }
@@ -42,6 +46,9 @@ struct ProfileView: View {
                         webLink("Pizza", icon: "fork.knife", path: "pizza")
                         webLink("Commissies en clubs", icon: "person.3", path: "commissies")
                     }
+                    Section {
+                        ShareLink(item: Diagnostics.shared.report(), subject: Text("Salve Mundi app diagnose"), message: Text("Diagnose van de Salve Mundi app")) { Label("Deel diagnose met Salve Mundi", systemImage: "stethoscope") }
+                    } header: { Text("Problemen melden") } footer: { Text("Bevat alleen appversie, iOS-versie, foutcodes en crashrapporten van iOS. Geen wachtwoorden, tickets of persoonsgegevens. Er wordt niets automatisch verstuurd.") }
                     Section {
                         webLink("Privacy en contact", icon: "hand.raised", path: "contact")
                         Button("Uitloggen", role: .destructive) { confirmLogout = true }
