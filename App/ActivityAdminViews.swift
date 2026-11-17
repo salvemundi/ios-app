@@ -570,7 +570,7 @@ struct ActivityAdminScannerPicker: View {
                     doorSection("Binnenkort", upcoming, past: false)
                     doorSection("Afgelopen · niet van vandaag", past, past: true)
                     if search.isEmpty && !past.isEmpty { Text("Alleen recente activiteiten (14 dagen, max. 5). Zoek om oudere te vinden.").font(.caption).foregroundStyle(.secondary) }
-                    if matching.isEmpty && !loading && error == nil { if search.isEmpty { Text("Geen toegestane activiteiten gevonden.").foregroundStyle(.secondary) } else { ContentUnavailableView.search(text: search) } }
+                    if matching.isEmpty && !loading && error == nil { if search.isEmpty { Text("Je hebt nog geen activiteiten waarvoor je tickets kunt scannen.").foregroundStyle(.secondary) } else { ContentUnavailableView.search(text: search) } }
                 }
             } else { EmptyState(icon: "lock.shield", title: "Geen toegang", message: "Je hebt geen toegang tot tickets scannen.") }
         }

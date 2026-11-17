@@ -41,6 +41,11 @@ private struct PagerControls: View {
     }
 }
 
+/// Brand purple for widget backgrounds: donker paars #5A3761 in light, a deeper #3D2442 in Dark Mode (white on it: 13:1).
+private enum WidgetColors {
+    static let purple = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.239, green: 0.141, blue: 0.259, alpha: 1) : UIColor(red: 0.353, green: 0.216, blue: 0.380, alpha: 1) })
+}
+
 private struct SalveEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetSnapshot
@@ -95,7 +100,7 @@ private struct UpcomingWidgetView: View {
             if entry.date.timeIntervalSince(entry.snapshot.updatedAt) > 86400 { Text("Open de app om bij te werken").font(.caption2).opacity(0.65) }
         }
         .foregroundStyle(.white)
-        .containerBackground(Color(red: 0.353, green: 0.216, blue: 0.380), for: .widget)
+        .containerBackground(WidgetColors.purple, for: .widget)
         .widgetURL(events.isEmpty ? URL(string: "salvemundi://activities") : events[WidgetPaging.index(entry.page, count: events.count)].deepLink)
     }
 }
@@ -237,7 +242,7 @@ private struct AdminCountsView: View {
             }
         }
         .foregroundStyle(.white)
-        .containerBackground(Color(red: 0.353, green: 0.216, blue: 0.380), for: .widget)
+        .containerBackground(WidgetColors.purple, for: .widget)
         .widgetURL(family == .systemSmall && summary != nil && !(summary?.items.isEmpty ?? true) ? summary?.items[WidgetPaging.index(entry.page, count: summary?.items.count ?? 0)].deepLink : URL(string: "salvemundi://admin/activities"))
     }
 }
@@ -276,7 +281,7 @@ private struct SalveEventLiveActivity: Widget {
                     if let location = context.state.event.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").lineLimit(1) }
                     if let url = context.state.event.deepLink { Link("Open mijn ticket", destination: url).font(.subheadline.bold()).foregroundStyle(.yellow) }
                 }
-            }.padding(16).activityBackgroundTint(Color(red: 0.353, green: 0.216, blue: 0.380)).activitySystemActionForegroundColor(.white).foregroundStyle(.white)
+            }.padding(16).activityBackgroundTint(WidgetColors.purple).activitySystemActionForegroundColor(.white).foregroundStyle(.white)
             .widgetURL(context.state.event.deepLink)
         } dynamicIsland: { context in
             DynamicIsland {

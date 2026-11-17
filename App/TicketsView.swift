@@ -14,7 +14,7 @@ struct TicketsView: View {
         ScrollView {
             VStack(spacing: 18) {
                 if !model.signedIn {
-                    EmptyState(icon: "ticket", title: "Jouw plek is gereserveerd", message: "Log in met je Salve Mundi account om je tickets en QR-codes te bekijken.")
+                    EmptyState(icon: "ticket", title: "Je tickets staan klaar", message: "Log in met je Salve Mundi account om je tickets en QR-codes te bekijken.")
                     Button { Task { await model.signIn() } } label: { Text("Inloggen") }.buttonStyle(PrimaryButtonStyle()).disabled(model.isSigningIn)
                 } else if model.isLoading && model.tickets.isEmpty { ProgressView().padding(40) }
                 else if model.tickets.isEmpty {
@@ -28,13 +28,13 @@ struct TicketsView: View {
                     if !upcomingTickets.isEmpty {
                         SectionHeading(title: "Komend en bezig")
                         ForEach(upcomingTickets) { ticket in
-                            Button { model.selectedTicket = ticket } label: { TicketRow(ticket: ticket, past: false) }.buttonStyle(.plain)
+                            Button { model.selectedTicket = ticket } label: { TicketRow(ticket: ticket, past: false) }.buttonStyle(CardButtonStyle())
                         }
                     }
                     if !pastTickets.isEmpty {
                         SectionHeading(title: "Afgelopen activiteiten")
                         ForEach(pastTickets) { ticket in
-                            Button { model.selectedTicket = ticket } label: { TicketRow(ticket: ticket, past: true) }.buttonStyle(.plain)
+                            Button { model.selectedTicket = ticket } label: { TicketRow(ticket: ticket, past: true) }.buttonStyle(CardButtonStyle())
                         }
                     }
                     if model.isOffline { Text("Een offline ticket kan sinds je laatste verbinding gewijzigd zijn. De scanner controleert je actuele toegang.").font(.caption).foregroundStyle(.secondary) }
@@ -168,9 +168,35 @@ struct TicketDetailView: View {
 
 // Offline copy of the website qr-generator/qr-render.ts and its qrcode dependency.
 // Ticket payloads are passed as JavaScript arguments, never sent to the website.
-private struct WebsiteTicketQR: UIViewRepresentable {
+/// The QR code with a visible loading state and a way to retry, instead of a blank white square while the page draws.
+private struct WebsiteTicketQR: View {
+    enum Phase { case loading, ready, failed }
     let token: String
-    func makeCoordinator() -> Coordinator { Coordinator(token: token) }
+    @State private var phase: Phase = .loading
+    @State private var attempt = 0
+    var body: some View {
+        ZStack {
+            WebsiteTicketQRWeb(token: token, attempt: attempt) { result in
+                withAnimation(.easeOut(duration: 0.25)) { phase = result ? .ready : .failed }
+            }
+            .opacity(phase == .ready ? 1 : 0)
+            if phase == .loading { ProgressView().controlSize(.large).tint(Brand.accent) }
+            if phase == .failed {
+                VStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle").font(.title2).foregroundStyle(Brand.caution)
+                    Text("De QR-code kon niet worden getoond.").font(.footnote).multilineTextAlignment(.center).foregroundStyle(.secondary)
+                    Button("Opnieuw proberen") { phase = .loading; attempt += 1 }.font(.footnote.weight(.semibold))
+                }.padding(8)
+            }
+        }
+    }
+}
+
+private struct WebsiteTicketQRWeb: UIViewRepresentable {
+    let token: String
+    let attempt: Int
+    let onResult: (Bool) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(token: token, attempt: attempt, onResult: onResult) }
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -184,16 +210,26 @@ private struct WebsiteTicketQR: UIViewRepresentable {
         return view
     }
     func updateUIView(_ view: WKWebView, context: Context) {
-        guard context.coordinator.token != token else { return }
+        context.coordinator.onResult = onResult
+        guard context.coordinator.token != token || context.coordinator.attempt != attempt else { return }
         context.coordinator.token = token
+        context.coordinator.attempt = attempt
         context.coordinator.render(view)
     }
     final class Coordinator: NSObject, WKNavigationDelegate {
         var token: String
-        init(token: String) { self.token = token }
+        var attempt: Int
+        var onResult: (Bool) -> Void
+        init(token: String, attempt: Int, onResult: @escaping (Bool) -> Void) { self.token = token; self.attempt = attempt; self.onResult = onResult }
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { render(webView) }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { DispatchQueue.main.async { self.onResult(false) } }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { DispatchQueue.main.async { self.onResult(false) } }
         func render(_ view: WKWebView) {
-            view.callAsyncJavaScript("await window.renderTicket(token)", arguments: ["token": token], in: nil, in: .page) { _ in }
+            view.callAsyncJavaScript("await window.renderTicket(token)", arguments: ["token": token], in: nil, in: .page) { result in
+                var ok = false
+                if case .success = result { ok = true }
+                DispatchQueue.main.async { self.onResult(ok) }
+            }
         }
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             decisionHandler(action.request.url?.scheme == "about" ? .allow : .cancel)

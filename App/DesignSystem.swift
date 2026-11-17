@@ -12,8 +12,8 @@ extension Color {
 enum Brand {
     /// Donker paars #5A3761 – fill colour (buttons, gradients, cards). White on it: 9.8:1.
     static let purple = Color(hex: 0x5A3761)
-    /// Purple for text, icons and tints on the page background: donker paars in light, a lighter tint of licht paars (#936695) in dark.
-    static let accent = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.753, green: 0.627, blue: 0.769, alpha: 1) : UIColor(red: 0.353, green: 0.216, blue: 0.380, alpha: 1) })
+    /// Purple for text, icons and tints on the page background: donker paars in light, a livelier lilac in dark (#CB9CD3: brand hue, 38% saturation, 7.5:1 on the dark card).
+    static let accent = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.796, green: 0.612, blue: 0.827, alpha: 1) : UIColor(red: 0.353, green: 0.216, blue: 0.380, alpha: 1) })
     /// Donker blauw #132A40 – secondary: second stop of gradients and text on yellow (9.8:1).
     static let deepPurple = Color(hex: 0x132A40)
     /// Geel #F8CF45 – a fill or text on dark purple/blue only. Never text on a light background (about 1.5:1).
@@ -35,7 +35,10 @@ struct PrimaryButtonStyle: ButtonStyle {
             .padding(.vertical, 16)
             .background(gold ? Brand.gold : Brand.purple, in: RoundedRectangle(cornerRadius: 18))
             .foregroundStyle(gold ? Brand.deepPurple : .white)
-            .opacity(configuration.isPressed ? 0.75 : 1)
+            .opacity(configuration.isPressed ? 0.8 : 1)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+            .sensoryFeedback(.impact(weight: .light), trigger: configuration.isPressed) { _, pressed in pressed }
     }
 }
 
@@ -93,6 +96,7 @@ struct ActivityCard: View {
                     Label(ticket.isValid ? "Aangemeld" : "Betaling in behandeling", systemImage: ticket.isValid ? "checkmark.circle.fill" : "clock")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(ticket.isValid ? Brand.success : Brand.caution)
+                        .symbolEffect(.bounce, value: ticket.isValid)
                     if model.isOffline { Text("Status bij laatste verbinding").font(.caption2).foregroundStyle(.secondary) }
                 }
                 Text(activity.title).font(featured ? .title3.bold() : .headline).foregroundStyle(.primary).lineLimit(2)
@@ -126,12 +130,13 @@ struct ActivityBanner: View {
                 AnimatedBannerImage(image: image, fit: fit, animate: !reduceMotion)
             }
         }
+            .opacity(media == nil ? 0 : 1)
             .accessibilityHidden(true)
             .task(id: url) {
                 media = nil
                 let loaded = await ActivityMediaCache.load(url)
                 guard !Task.isCancelled else { return }
-                media = loaded
+                withAnimation(.easeOut(duration: 0.3)) { media = loaded }
             }
             .onDisappear { media = nil }
     }
@@ -327,5 +332,61 @@ extension View {
     /// Filter field next to the list it filters: always visible above the list.
     func inlineSearch(text: Binding<String>, prompt: LocalizedStringKey) -> some View {
         searchable(text: text, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
+    }
+}
+
+// MARK: - Motion and feedback
+
+/// Press feedback for tappable cards: a small spring shrink and a light tap, instead of a dead `.plain` button.
+struct CardButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.975 : 1)
+            .opacity(configuration.isPressed ? 0.92 : 1)
+            .animation(.snappy(duration: 0.18), value: configuration.isPressed)
+            .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: configuration.isPressed) { _, pressed in pressed }
+    }
+}
+
+/// Cards ease in and out at the edges of the scroll view (subtle; off with Reduce Motion).
+private struct SoftScroll: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func body(content: Content) -> some View {
+        if reduceMotion { content } else {
+            content.scrollTransition(.animated(.snappy)) { view, phase in
+                view.opacity(phase.isIdentity ? 1 : 0.55).scaleEffect(phase.isIdentity ? 1 : 0.96)
+            }
+        }
+    }
+}
+extension View { func softScroll() -> some View { modifier(SoftScroll()) } }
+
+/// Placeholder shaped like an activity card, so loading feels like the page already being there.
+struct ActivityCardSkeleton: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var dim = false
+    var body: some View {
+        VStack(spacing: 0) {
+            Rectangle().fill(Color.secondary.opacity(0.18)).frame(height: 96)
+            VStack(alignment: .leading, spacing: 10) {
+                RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.22)).frame(width: 190, height: 18)
+                RoundedRectangle(cornerRadius: 5).fill(Color.secondary.opacity(0.14)).frame(width: 130, height: 12)
+            }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Brand.card, in: RoundedRectangle(cornerRadius: 24))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .opacity(dim ? 0.55 : 1)
+        .onAppear { if !reduceMotion { withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dim = true } } }
+        .accessibilityHidden(true)
+    }
+}
+
+/// A few skeleton cards with one VoiceOver label for the whole group.
+struct ActivityListSkeleton: View {
+    var count = 3
+    var body: some View {
+        VStack(spacing: 18) { ForEach(0..<count, id: \.self) { _ in ActivityCardSkeleton() } }
+            .accessibilityElement(children: .ignore).accessibilityLabel("Activiteiten laden")
     }
 }

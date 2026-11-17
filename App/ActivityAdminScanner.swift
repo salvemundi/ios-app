@@ -64,15 +64,18 @@ struct ActivityAdminScannerSheet: View {
                 if let title = statusTitle {
                     VStack(spacing: 12) {
                         Image(systemName: statusKind == "success" ? "checkmark.circle.fill" : statusKind == "warning" ? "exclamationmark.circle.fill" : "xmark.circle.fill")
-                            .font(.system(size: statusIconSize)).foregroundStyle(statusKind == "success" ? .green : statusKind == "warning" ? .orange : .red)
+                            .font(.system(size: statusIconSize)).symbolEffect(.bounce, value: statusTitle).foregroundStyle(statusKind == "success" ? .green : statusKind == "warning" ? .orange : .red)
                         Text(title).font(.title2.bold())
                         Text(statusMessage).multilineTextAlignment(.center)
                         Text("De scanner gaat automatisch verder.").font(.caption).foregroundStyle(.secondary)
                         Button("Volgende scannen") { clearStatus() }.font(.headline)
                     }.padding(24).frame(maxWidth: 320).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
                     .accessibilityElement(children: .combine)
+                    .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
             }.frame(height: 300).clipShape(RoundedRectangle(cornerRadius: 24))
+            .animation(.snappy(duration: 0.28), value: statusTitle)
+            .animation(.snappy, value: processing)
             Button { showRoster = true } label: { Label("Zoek deelnemer of check handmatig in", systemImage: "magnifyingglass").frame(maxWidth: .infinity).padding(.vertical, 10) }
                 .buttonStyle(.borderedProminent).tint(Brand.purple).disabled(!authorized || processing)
             if let cameraError {
@@ -118,7 +121,7 @@ struct ActivityAdminScannerSheet: View {
         .privacySensitive()
     }
     private func doorCount(_ title: String, value: Int, color: Color) -> some View {
-        VStack(spacing: 4) { Text(value, format: .number).font(.system(size: countSize, weight: .bold, design: .rounded)).foregroundStyle(color).monospacedDigit(); Text(title).font(.caption).foregroundStyle(.secondary) }
+        VStack(spacing: 4) { Text(value, format: .number).font(.system(size: countSize, weight: .bold, design: .rounded)).foregroundStyle(color).monospacedDigit().contentTransition(.numericText()).animation(.snappy, value: value); Text(title).font(.caption).foregroundStyle(.secondary) }
             .frame(maxWidth: .infinity).padding(.vertical, 12).background(Brand.card, in: RoundedRectangle(cornerRadius: 16))
     }
     private func clearPrivateState() {

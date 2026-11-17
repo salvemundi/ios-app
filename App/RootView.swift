@@ -80,7 +80,7 @@ struct HomeView: View {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(model.nextTicket == nil ? "BINNENKORT BIJ SALVE MUNDI" : (model.nextTicket?.startsAt.map { $0 < .now } == true ? "JOUW ACTIVITEIT" : (TicketWindow.isNear(start: model.nextTicket?.startsAt) ? "BEGINT BIJNA" : "JE VOLGENDE ACTIVITEIT")))
-                                .font(.caption.weight(.semibold)).tracking(1.5).foregroundStyle(Brand.gold)
+                                .font(.caption.weight(.semibold)).tracking(1.2).foregroundStyle(Brand.gold)
                             Text(model.nextTicket?.title ?? (model.isLoading ? "Agenda laden…" : model.upcoming.first?.title ?? "Ontdek de agenda"))
                                 .font(.title.bold()).foregroundStyle(.white)
                         }
@@ -115,10 +115,10 @@ struct HomeView: View {
 
                 VStack(spacing: 16) {
                     HStack { SectionHeading(title: "Komende activiteiten"); Button("Alles") { model.selectedTab = .activities }.font(.subheadline.weight(.semibold)).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }
-                    if model.isLoading && model.activities.isEmpty { ProgressView().padding(30) }
+                    if model.isLoading && model.activities.isEmpty { ActivityListSkeleton(count: 2) }
                     else if model.backendUnavailableMessage != nil && model.activities.isEmpty { EmptyState(icon: "calendar.badge.exclamationmark", title: "Agenda tijdelijk niet beschikbaar", message: "Je kunt opnieuw laden zodra de appverbinding actief is.") }
                     else if model.upcoming.isEmpty { EmptyState(icon: "calendar.badge.clock", title: "Even rustig op de agenda", message: "Nieuwe activiteiten verschijnen hier zodra ze bekend zijn.") }
-                    else { ForEach(model.upcoming.prefix(3)) { activity in Button { model.selectedActivity = activity } label: { ActivityCard(activity: activity, featured: true) }.buttonStyle(.plain) } }
+                    else { ForEach(model.upcoming.prefix(3)) { activity in Button { model.selectedActivity = activity } label: { ActivityCard(activity: activity, featured: true) }.buttonStyle(CardButtonStyle()).softScroll() } }
                 }
                 HStack(spacing: 14) {
                     QuickLink(title: "Vereniging", icon: "person.3.fill", url: model.server.appendingPathComponent("commissies"))
@@ -167,14 +167,15 @@ struct ActivitiesView: View {
         ScrollView {
             LazyVStack(spacing: 18) {
                 Picker("Periode", selection: $upcomingOnly) { Text("Binnenkort").tag(true); Text("Alle activiteiten").tag(false) }.pickerStyle(.segmented)
-                if model.isLoading && model.activities.isEmpty { ProgressView().padding(40) }
+                if model.isLoading && model.activities.isEmpty { ActivityListSkeleton() }
                 else if model.backendUnavailableMessage != nil && model.activities.isEmpty { EmptyState(icon: "calendar.badge.exclamationmark", title: "Agenda tijdelijk niet beschikbaar", message: "Je kunt opnieuw laden zodra de appverbinding actief is.") }
                 else if visible.isEmpty {
                     if search.isEmpty { EmptyState(icon: "calendar", title: "Nog geen activiteiten", message: "Probeer later opnieuw.") }
                     else { ContentUnavailableView.search(text: search) }
                 }
-                else { ForEach(visible) { activity in Button { model.selectedActivity = activity } label: { ActivityCard(activity: activity) }.buttonStyle(.plain) } }
+                else { ForEach(visible) { activity in Button { model.selectedActivity = activity } label: { ActivityCard(activity: activity) }.buttonStyle(CardButtonStyle()).softScroll().transition(.opacity.combined(with: .scale(scale: 0.97))) } }
             }.padding(20)
+            .animation(.smooth(duration: 0.25), value: visible.map(\.id))
         }.id(upcomingOnly).background(Brand.background).navigationTitle("Activiteiten")
         .inlineSearch(text: $search, prompt: "Zoek een activiteit")
         .refreshable { await model.refresh() }
@@ -200,7 +201,7 @@ private struct AttendanceCard: View {
                         ProgressView(value: Double(min(checkedIn, max(confirmed, 1))), total: Double(max(confirmed, 1))).tint(Brand.accent).accessibilityHidden(true)
                         Text(confirmed - checkedIn > 0 ? "\(confirmed - checkedIn) nog verwacht" : "Iedereen is binnen").font(.caption).foregroundStyle(.secondary)
                     }
-                }.buttonStyle(.plain)
+                }.buttonStyle(CardButtonStyle())
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(item.activity.title)
                 .accessibilityValue("\(checkedIn) van \(confirmed) aanwezig")
@@ -265,5 +266,6 @@ private struct NoticeBanner: View {
             }
         }
         .animation(reduceMotion ? .easeOut(duration: 0.15) : .smooth, value: model.notice)
+        .sensoryFeedback(.impact(weight: .light), trigger: model.notice) { _, new in new != nil }
     }
 }

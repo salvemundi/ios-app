@@ -41,7 +41,10 @@
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>Voeg een Salve Mundi activiteit toe aan je eigen agenda.</string>
 	<key>UILaunchScreen</key>
-	<dict/>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

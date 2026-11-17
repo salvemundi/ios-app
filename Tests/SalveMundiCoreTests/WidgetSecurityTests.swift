@@ -55,7 +55,10 @@ struct WidgetSecurityTests {
     #expect(DeepLink(url: try #require(value.deepLink)) == .ticket(ticket.id))
     let data = try JSONCoding.encoder().encode(value)
     #expect(!String(decoding: data, as: UTF8.self).contains("NEVER-SHARE"))
-    #expect(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now.addingTimeInterval(-5 * 3600)) != nil)
+    // Only from two hours before the start: a ticket for later today or another day gets no card.
+    #expect(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now.addingTimeInterval(-3600)) != nil)   // starts in 2 h
+    #expect(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now.addingTimeInterval(-5 * 3600)) == nil) // starts in 6 h
+    #expect(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now.addingTimeInterval(-3 * 86400)) == nil) // starts in 3 days
     #expect(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now.addingTimeInterval(7200)) == nil)
     #expect(EventLiveSnapshot.make(ticket: ticket, activity: event, at: now, expiresNoLaterThan: now) == nil)
     let unpaid = Ticket(id: ticket.id, title: ticket.title, startsAt: ticket.startsAt, location: ticket.location, qrToken: nil, status: "open", kind: "event", activityID: event.id)

@@ -293,3 +293,19 @@ final class Diagnostics: NSObject, MXMetricManagerSubscriber, @unchecked Sendabl
         }
     }
 }
+
+
+// MARK: - Launch milestones
+
+import os
+
+/// Where the time goes at start-up. Visible in the Xcode/device console (category "launch") and in the shared diagnostics report.
+enum Launch {
+    private static let logger = Logger(subsystem: "nl.salvemundi.ios", category: "launch")
+    private static let begin = ProcessInfo.processInfo.systemUptime
+    static func mark(_ event: String) {
+        let ms = Int((ProcessInfo.processInfo.systemUptime - begin) * 1000)
+        logger.notice("\(event, privacy: .public) +\(ms)ms")
+        Diagnostics.shared.log("launch \(event) +\(ms)ms")
+    }
+}

@@ -94,6 +94,7 @@ final class AppModel {
     }
 
     func refresh() async {
+        Launch.mark("refresh start")
         guard !isLoading else { refreshRequested = true; return }
         if isDemo { return }
         if session?.isExpired == true { clearSession() }
@@ -129,6 +130,7 @@ final class AppModel {
                 await registerDeviceIfPossible()
                 guard generation == sessionGeneration else { return }
             } else if session != nil { await logout(); return }
+            Launch.mark("refresh loaded")
             lastUpdated = .now
             LocalCache.save(lastUpdated, name: "updated.json")
             writeWidgetSnapshot()

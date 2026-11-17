@@ -10,6 +10,7 @@ struct SalveMundiApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .onAppear { Launch.mark("RootView appeared") }
                 .environment(model)
                 .tint(Brand.accent)
                 .task { await model.refresh() }
@@ -28,6 +29,7 @@ struct SalveMundiApp: App {
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        Launch.mark("didFinishLaunching")
         Diagnostics.shared.start()
         AppModel.shared.startConnectivityWatch()
         Task {
