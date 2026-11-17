@@ -11,7 +11,7 @@ struct SalveMundiApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
-                .tint(Brand.purple)
+                .tint(Brand.accent)
                 .task { await model.refresh() }
                 .onOpenURL { url in Task { await model.open(url) } }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in

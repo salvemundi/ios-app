@@ -37,7 +37,7 @@ struct ActivityAdminScannerSheet: View {
                 Text(roster.activity.activity.title).font(.headline).frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 12) {
                     doorCount("Aanwezig", value: totals.present, color: .green)
-                    doorCount("Nog verwacht", value: totals.remaining, color: Brand.purple)
+                    doorCount("Nog verwacht", value: totals.remaining, color: Brand.accent)
                     doorCount("Aangemeld", value: totals.expected, color: .primary)
                 }
             } else if loadingRoster { ProgressView("Aanmeldingen laden…") }
@@ -221,7 +221,7 @@ private struct DoorRosterView: View {
                             }
                             Spacer()
                             if registration.isPaid && !registration.checkedIn {
-                                Button("Inchecken") { Task { await checkIn(registration) } }.buttonStyle(.borderedProminent).disabled(busyID != nil)
+                                Button("Inchecken") { Task { await checkIn(registration) } }.buttonStyle(.borderedProminent).tint(Brand.purple).disabled(busyID != nil)
                             } else { Image(systemName: registration.isPaid && registration.checkedIn ? "checkmark.circle.fill" : "exclamationmark.circle").foregroundStyle(registration.isPaid && registration.checkedIn ? .green : .orange) }
                         }.padding(.vertical, 6)
                     }
@@ -229,7 +229,7 @@ private struct DoorRosterView: View {
             } else { EmptyState(icon: "lock.shield", title: "Geen toegang", message: "De deelnemerslijst is niet beschikbaar.") }
         }
         .navigationTitle("Zoek deelnemer").navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: "Zoek naam of e-mail")
+        .inlineSearch(text: $query, prompt: "Zoek naam of e-mail")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Terug naar scanner") { dismiss() } } }
         .task {
             visible = true

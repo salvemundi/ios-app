@@ -28,9 +28,9 @@ struct ActivityDetailView: View {
                     VStack(alignment: .leading, spacing: 12) { SectionHeading(title: "Over deze activiteit"); Text(description).font(.body).textSelection(.enabled) }
                 }
                 HStack {
-                    VStack(alignment: .leading, spacing: 5) { Text("Voor jou").font(.caption).foregroundStyle(.secondary); Text(price).font(.title2.bold()).foregroundStyle(Brand.purple) }
+                    VStack(alignment: .leading, spacing: 5) { Text("Voor jou").font(.caption).foregroundStyle(.secondary); Text(price).font(.title2.bold()).foregroundStyle(Brand.accent) }
                     Spacer()
-                    if current.membersOnly { Label("Alleen leden", systemImage: "person.crop.circle.badge.checkmark").font(.caption.bold()).foregroundStyle(Brand.purple) }
+                    if current.membersOnly { Label("Alleen leden", systemImage: "person.crop.circle.badge.checkmark").font(.caption.bold()).foregroundStyle(Brand.accent) }
                 }.padding(20).background(Brand.card, in: RoundedRectangle(cornerRadius: 20))
                 if current.startsAt != nil {
                     Button { Task { await addToCalendar() } } label: { Label("Zet in mijn agenda", systemImage: "calendar.badge.plus").frame(maxWidth: .infinity).padding(14) }.buttonStyle(.bordered)

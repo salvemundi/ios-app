@@ -4,17 +4,17 @@ struct ProfileView: View {
     @Environment(AppModel.self) private var model
     @State private var editing = false
     @State private var confirmLogout = false
-    @AppStorage("ticket.autoOpen") private var ticketAutoOpen = true
+    @AppStorage("ticket.autoOpen") private var ticketAutoOpen = false
     var body: some View {
         Group {
             if let profile = model.profile, model.signedIn {
                 Form {
                     Section {
                         VStack(spacing: 12) {
-                            Text(String(profile.firstName.prefix(1)) + String(profile.lastName.prefix(1))).font(.largeTitle.bold()).foregroundStyle(Brand.purple).frame(width: 86, height: 86).background(Brand.purple.opacity(0.1), in: Circle())
+                            Text(String(profile.firstName.prefix(1)) + String(profile.lastName.prefix(1))).font(.largeTitle.bold()).foregroundStyle(Brand.accent).frame(width: 86, height: 86).background(Brand.accent.opacity(0.15), in: Circle())
                             Text(profile.name).font(.title2.bold())
                             Text(profile.email).font(.subheadline).foregroundStyle(.secondary)
-                            Label(profile.isActiveMember ? "Actief lid" : "Lidmaatschap", systemImage: "checkmark.seal.fill").font(.caption.bold()).padding(.horizontal, 14).padding(.vertical, 8).background(Brand.gold.opacity(0.3), in: Capsule()).foregroundStyle(Brand.purple)
+                            Label(profile.isActiveMember ? "Actief lid" : "Lidmaatschap", systemImage: "checkmark.seal.fill").font(.caption.bold()).padding(.horizontal, 14).padding(.vertical, 8).background(Brand.gold.opacity(0.3), in: Capsule()).foregroundStyle(Brand.accent)
                             if let expiry = profile.membershipExpiry { Text("Geldig tot \(expiry.formatted(.dateTime.day().month().year()))").font(.caption).foregroundStyle(.secondary) }
                         }.frame(maxWidth: .infinity).padding(.vertical, 16)
                         Button { editing = true } label: { Label("Mijn gegevens wijzigen", systemImage: "pencil") }
@@ -25,8 +25,8 @@ struct ProfileView: View {
                         }
                     }
                     Section {
-                        Toggle("Ticket automatisch openen bij een activiteit", isOn: $ticketAutoOpen)
-                    } header: { Text("Tickets") } footer: { Text("Je ticket opent vanzelf vanaf 2 uur voor de start van je activiteit, zodat je het bij de deur meteen bij de hand hebt. Deze keuze geldt alleen op dit toestel.") }
+                        Toggle("Ticket automatisch openen", isOn: $ticketAutoOpen)
+                    } header: { Text("Tickets") } footer: { Text("Standaard staat je ticket op Home klaar, groot bij de knop, vanaf 2 uur voor de start. Zet dit aan als je ticket ook vanzelf open mag gaan zodra je de app opent. Deze keuze geldt alleen op dit toestel.") }
                     Section("Meldingen") {
                         Text(model.notificationStatus).font(.footnote).foregroundStyle(.secondary)
                         if !model.notificationPreferencesAvailable { Text("Meldingsvoorkeuren zijn nog niet geladen. Ververs de app en probeer het opnieuw.").font(.caption).foregroundStyle(.secondary) }
@@ -57,8 +57,8 @@ struct ProfileView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 24) {
-                        Image("Brand").renderingMode(.template).resizable().scaledToFit().frame(width: 180).foregroundStyle(Brand.purple).padding(.vertical, 36)
-                        EmptyState(icon: "person.crop.circle", title: "Welkom bij de club", message: "Met je bestaande Salve Mundi account heb je je activiteiten, tickets en lidmaatschap altijd bij je.")
+                        Image("Brand").renderingMode(.template).resizable().scaledToFit().frame(width: 180).foregroundStyle(Brand.accent).padding(.vertical, 36)
+                        EmptyState(icon: "person.crop.circle", title: "Spreid je vleugels", message: "Welkom bij de club. Met je bestaande Salve Mundi account heb je je activiteiten, tickets en lidmaatschap altijd bij je.")
                         Button { Task { await model.signIn() } } label: { HStack { if model.isSigningIn { ProgressView().tint(.white) }; Text("Inloggen met Microsoft") } }.buttonStyle(PrimaryButtonStyle()).disabled(model.isSigningIn)
                         Link("Nog geen lid? Bekijk het lidmaatschap", destination: model.server.appendingPathComponent("lidmaatschap")).font(.subheadline)
                     }.padding(20)
@@ -66,6 +66,8 @@ struct ProfileView: View {
             }
         }
         .navigationTitle("Profiel")
+        .scrollContentBackground(.hidden)
+        .background(Brand.background)
         .sheet(isPresented: $editing) { if let profile = model.profile { NavigationStack { EditProfileView(profile: profile) } } }
         .confirmationDialog("Wil je uitloggen?", isPresented: $confirmLogout, titleVisibility: .visible) {
             Button("Uitloggen", role: .destructive) { Task { await model.logout() } }

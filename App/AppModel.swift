@@ -594,7 +594,7 @@ extension AppModel {
     /// Opens the member's ticket once when the event is about to start (or just started).
     func presentTicketIfNear() {
         // Per-device preference (Profile); default on when never set.
-        guard UserDefaults.standard.object(forKey: "ticket.autoOpen") as? Bool ?? true else { return }
+        guard UserDefaults.standard.object(forKey: "ticket.autoOpen") as? Bool ?? false else { return }
         guard signedIn, selectedTicket == nil, selectedActivity == nil, adminPresentation == nil, checkoutURL == nil,
               let ticket = nextTicket, TicketWindow.isNear(start: ticket.startsAt) else { return }
         let key = "ticket.autoPresented"

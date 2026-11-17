@@ -47,7 +47,7 @@ private struct ActivityAdminListView: View {
         }
         .privacySensitive()
         .navigationTitle("Activiteitenbeheer").navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $search, prompt: "Zoek een activiteit")
+        .inlineSearch(text: $search, prompt: "Zoek een activiteit")
         .navigationDestination(for: String.self) { ActivityAdminDetailView(activityID: $0) }
         .toolbar {
             if !embedded { ToolbarItem(placement: .topBarLeading) { Button("Sluiten") { dismiss() } } }
@@ -94,7 +94,7 @@ private struct ActivityAdminListView: View {
                 ForEach(activities) { item in
                     NavigationLink(value: item.id) {
                         VStack(alignment: .leading, spacing: 8) {
-                            HStack { Text(item.activity.title).font(.headline); Spacer(); Text(item.statusLabel).font(.caption).foregroundStyle(item.status == "draft" ? .secondary : Brand.purple) }
+                            HStack { Text(item.activity.title).font(.headline); Spacer(); Text(item.statusLabel).font(.caption).foregroundStyle(item.status == "draft" ? .secondary : Brand.accent) }
                             if let date = item.activity.startsAt { Text(date.formatted(.dateTime.day().month().year().hour().minute())).font(.caption).foregroundStyle(.secondary) }
                             if let committee = item.committeeName { Text(committee).font(.caption).foregroundStyle(.secondary) }
                             HStack(spacing: 16) { Label("\(item.confirmedCount) aangemeld", systemImage: "person.2"); Label(item.activity.capacity.map { "\(max(0, $0 - item.confirmedCount - item.pendingCount)) plekken vrij" } ?? "Geen limiet", systemImage: "person.badge.plus"); Label("\(item.checkedInCount)", systemImage: "checkmark.circle") }.font(.caption2).foregroundStyle(.secondary)
@@ -115,7 +115,7 @@ private struct ActivityAdminListView: View {
 
 private struct AdminCount: View {
     let title: String; let value: Int
-    var body: some View { VStack(alignment: .leading, spacing: 5) { Text(value.formatted()).font(.title2.bold()).foregroundStyle(Brand.purple); Text(title).font(.caption2).foregroundStyle(.secondary) } }
+    var body: some View { VStack(alignment: .leading, spacing: 5) { Text(value.formatted()).font(.title2.bold()).foregroundStyle(Brand.accent); Text(title).font(.caption2).foregroundStyle(.secondary) } }
 }
 
 private struct AdminErrorRow: View {
@@ -346,7 +346,7 @@ private struct ActivityAdminRegistrationsView: View {
             } else if error == nil { ProgressView("Deelnemers laden…") }
         }
         .navigationTitle("Aanmeldingen").navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $query, prompt: "Zoek naam of e-mail")
+        .inlineSearch(text: $query, prompt: "Zoek naam of e-mail")
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if data?.activity.canCheckIn == true { Button("QR scannen", systemImage: "qrcode.viewfinder") { showScanner = true }.labelStyle(.iconOnly) }
@@ -581,7 +581,7 @@ struct ActivityAdminScannerPicker: View {
             if !autoDone, search.isEmpty, let id { autoDone = true; autoID = id }
         }
         .onAppear { if !autoDone, search.isEmpty, let id = groups.autoSelected?.id { autoDone = true; autoID = id } }
-        .searchable(text: $search, prompt: "Zoek een activiteit")
+        .bottomSearch(text: $search, prompt: "Zoek een activiteit")
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Sluiten") { dismiss() } } }
         .task { await load() }
         .refreshable { await load() }

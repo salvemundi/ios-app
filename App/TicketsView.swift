@@ -22,6 +22,9 @@ struct TicketsView: View {
                     Button("Ontdek activiteiten") { model.selectedTab = .activities }.buttonStyle(PrimaryButtonStyle())
                 } else {
                     Text("Je tickets, altijd bij de hand.").font(.subheadline).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    if let next = model.nextTicket, let token = next.qrToken, !token.isEmpty {
+                        NextTicketCard(ticket: next, token: token) { model.selectedTicket = next }
+                    }
                     if !upcomingTickets.isEmpty {
                         SectionHeading(title: "Komend en bezig")
                         ForEach(upcomingTickets) { ticket in
@@ -41,12 +44,34 @@ struct TicketsView: View {
     }
 }
 
+/// The next valid ticket with its QR code in view straight away, so it is one glance at the door instead of two taps.
+private struct NextTicketCard: View {
+    let ticket: Ticket
+    let token: String
+    let open: () -> Void
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("JE VOLGENDE TICKET").font(.caption.weight(.semibold)).tracking(1.2).foregroundStyle(Brand.accent).frame(maxWidth: .infinity, alignment: .leading)
+            WebsiteTicketQR(token: token).frame(width: 220, height: 220).padding(16).background(.white, in: RoundedRectangle(cornerRadius: 20))
+                .accessibilityLabel("QR-code voor toegang tot \(ticket.title)")
+            VStack(spacing: 4) {
+                Text(ticket.title).font(.headline).multilineTextAlignment(.center)
+                if let date = ticket.startsAt { Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide).hour().minute())).font(.subheadline).foregroundStyle(.secondary) }
+            }
+            Button(action: open) { Label("Bekijk groot en helder", systemImage: "arrow.up.left.and.arrow.down.right") }.font(.subheadline.weight(.semibold))
+        }
+        .padding(20).frame(maxWidth: .infinity)
+        .background(Brand.card, in: RoundedRectangle(cornerRadius: 24))
+        .privacySensitive()
+    }
+}
+
 private struct TicketRow: View {
     let ticket: Ticket
     let past: Bool
     var body: some View {
         HStack(spacing: 16) {
-            ZStack { RoundedRectangle(cornerRadius: 16).fill(Brand.purple.opacity(0.1)); Image(systemName: ticket.isValid ? "qrcode" : "ticket").font(.title).foregroundStyle(Brand.purple) }.frame(width: 64, height: 72)
+            ZStack { RoundedRectangle(cornerRadius: 16).fill(Brand.accent.opacity(0.15)); Image(systemName: past ? "clock.arrow.circlepath" : "ticket.fill").font(.title).foregroundStyle(Brand.accent) }.frame(width: 64, height: 72)
             VStack(alignment: .leading, spacing: 6) {
                 if past { Label("Afgelopen", systemImage: "clock.arrow.circlepath").font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                 Text(ticket.title).font(.headline).foregroundStyle(.primary)

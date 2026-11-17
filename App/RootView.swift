@@ -5,14 +5,14 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         TabView(selection: $model.selectedTab) {
-            Tab("Home", systemImage: "house.fill", value: .home) { NavigationStack { HomeView() }.tabEntrance() }
-            Tab("Activiteiten", systemImage: "calendar", value: .activities) { NavigationStack { ActivitiesView() }.tabEntrance() }
-            Tab("Tickets", systemImage: "qrcode", value: .tickets) { NavigationStack { TicketsView() }.tabEntrance() }
+            Tab("Home", systemImage: "house.fill", value: .home) { NavigationStack { HomeView() }.tabEntrance("home") }
+            Tab("Activiteiten", systemImage: "calendar", value: .activities) { NavigationStack { ActivitiesView() }.tabEntrance("activities") }
+            Tab("Tickets", systemImage: "qrcode", value: .tickets) { NavigationStack { TicketsView() }.tabEntrance("tickets") }
             // Always keep this tab in the tab list and only hide it: inserting/removing a tab makes SwiftUI reuse
             // navigation controllers by position, so Beheer and Profiel can end up sharing a navigation item (UIKit crash).
-            Tab("Beheer", systemImage: "slider.horizontal.3", value: .admin) { ActivityAdminRootView(initialActivityID: nil, embedded: true).tabEntrance() }
+            Tab("Beheer", systemImage: "slider.horizontal.3", value: .admin) { ActivityAdminRootView(initialActivityID: nil, embedded: true).tabEntrance("admin") }
                 .hidden(!model.canAdminActivities)
-            Tab("Profiel", systemImage: "person.crop.circle", value: .profile) { NavigationStack { ProfileView() }.tabEntrance() }
+            Tab("Profiel", systemImage: "person.crop.circle", value: .profile) { NavigationStack { ProfileView() }.tabEntrance("profile") }
         }
         .sensoryFeedback(.selection, trigger: model.selectedTab)
         .onChange(of: model.canAdminActivities) { _, allowed in
@@ -26,9 +26,7 @@ struct RootView: View {
         .alert("Er ging iets mis", isPresented: Binding(get: { model.errorMessage != nil }, set: { if !$0 { model.errorMessage = nil } })) {
             Button("OK", role: .cancel) { model.errorMessage = nil }
         } message: { Text(model.errorMessage ?? "") }
-        .alert("Salve Mundi", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
-            Button("OK", role: .cancel) { model.notice = nil }
-        } message: { Text(model.notice ?? "") }
+        .overlay(alignment: .top) { NoticeBanner() }
         .safeAreaInset(edge: .top, spacing: 0) {
             if model.isDemo {
                 Text("DEMONSTRATIE · GEEN ECHTE GEGEVENS").font(.caption2.bold()).frame(maxWidth: .infinity).padding(8).background(Brand.gold).foregroundStyle(Brand.deepPurple)
@@ -81,7 +79,7 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     HStack(alignment: .top) {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(model.nextTicket == nil ? "BINNENKORT BIJ SALVE MUNDI" : (model.nextTicket?.startsAt.map { $0 < .now } == true ? "JOUW ACTIVITEIT" : "JE VOLGENDE ACTIVITEIT"))
+                            Text(model.nextTicket == nil ? "BINNENKORT BIJ SALVE MUNDI" : (model.nextTicket?.startsAt.map { $0 < .now } == true ? "JOUW ACTIVITEIT" : (TicketWindow.isNear(start: model.nextTicket?.startsAt) ? "BEGINT BIJNA" : "JE VOLGENDE ACTIVITEIT")))
                                 .font(.caption.weight(.semibold)).tracking(1.5).foregroundStyle(Brand.gold)
                             Text(model.nextTicket?.title ?? (model.isLoading ? "Agenda laden…" : model.upcoming.first?.title ?? "Ontdek de agenda"))
                                 .font(.title.bold()).foregroundStyle(.white)
@@ -149,7 +147,7 @@ struct HomeView: View {
 
 private struct QuickLink: View {
     let title: String; let icon: String; let url: URL
-    var body: some View { Link(destination: url) { VStack(alignment: .leading, spacing: 12) { Image(systemName: icon).font(.title2).foregroundStyle(Brand.purple); Text(title).font(.subheadline.bold()).foregroundStyle(.primary) }.frame(maxWidth: .infinity, alignment: .leading).padding(20).background(Brand.card, in: RoundedRectangle(cornerRadius: 22)) } }
+    var body: some View { Link(destination: url) { VStack(alignment: .leading, spacing: 12) { Image(systemName: icon).font(.title2).foregroundStyle(Brand.accent); Text(title).font(.subheadline.bold()).foregroundStyle(.primary) }.frame(maxWidth: .infinity, alignment: .leading).padding(20).background(Brand.card, in: RoundedRectangle(cornerRadius: 22)) } }
 }
 
 struct ActivitiesView: View {
@@ -178,7 +176,7 @@ struct ActivitiesView: View {
                 else { ForEach(visible) { activity in Button { model.selectedActivity = activity } label: { ActivityCard(activity: activity) }.buttonStyle(.plain) } }
             }.padding(20)
         }.id(upcomingOnly).background(Brand.background).navigationTitle("Activiteiten")
-        .searchable(text: $search, prompt: "Zoek een activiteit")
+        .inlineSearch(text: $search, prompt: "Zoek een activiteit")
         .refreshable { await model.refresh() }
     }
 }
@@ -188,7 +186,7 @@ private struct AttendanceCard: View {
     let items: [AdminActivity]
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("VANDAAG AAN DE DEUR", systemImage: "person.badge.shield.checkmark.fill").font(.caption.weight(.semibold)).tracking(1.2).foregroundStyle(Brand.purple)
+            Label("VANDAAG AAN DE DEUR", systemImage: "person.badge.shield.checkmark.fill").font(.caption.weight(.semibold)).tracking(1.2).foregroundStyle(Brand.accent)
             ForEach(items.prefix(2)) { item in
                 let checkedIn = model.liveCounts[item.id]?.checkedIn ?? item.checkedInCount
                 let confirmed = model.liveCounts[item.id]?.confirmed ?? item.confirmedCount
@@ -197,9 +195,9 @@ private struct AttendanceCard: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text(item.activity.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
                             Spacer(minLength: 8)
-                            Text("\(checkedIn)/\(confirmed)").font(.title3.bold().monospacedDigit()).foregroundStyle(Brand.purple).contentTransition(.numericText())
+                            Text("\(checkedIn)/\(confirmed)").font(.title3.bold().monospacedDigit()).foregroundStyle(Brand.accent).contentTransition(.numericText())
                         }
-                        ProgressView(value: Double(min(checkedIn, max(confirmed, 1))), total: Double(max(confirmed, 1))).tint(Brand.purple).accessibilityHidden(true)
+                        ProgressView(value: Double(min(checkedIn, max(confirmed, 1))), total: Double(max(confirmed, 1))).tint(Brand.accent).accessibilityHidden(true)
                         Text(confirmed - checkedIn > 0 ? "\(confirmed - checkedIn) nog verwacht" : "Iedereen is binnen").font(.caption).foregroundStyle(.secondary)
                     }
                 }.buttonStyle(.plain)
@@ -217,8 +215,11 @@ private struct AttendanceCard: View {
     }
 }
 
-/// A short fade and rise when a tab comes into view, instead of the abrupt swap.
+/// A short fade and rise the FIRST time a tab appears in a session. Switching tabs is a frequent action, so later visits
+/// show the tab immediately (HIG › Motion: avoid motion for frequent interactions).
 private struct TabEntrance: ViewModifier {
+    let key: String
+    @MainActor private static var seen: Set<String> = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = true
     func body(content: Content) -> some View {
@@ -226,10 +227,43 @@ private struct TabEntrance: ViewModifier {
             .opacity(shown ? 1 : 0)
             .offset(y: shown || reduceMotion ? 0 : 14)
             .onAppear {
+                guard Self.seen.insert(key).inserted else { return }
                 shown = false
-                // Reduce Motion: a quick fade only, no movement.
                 withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .smooth(duration: 0.32)) { shown = true }
             }
     }
 }
-extension View { func tabEntrance() -> some View { modifier(TabEntrance()) } }
+extension View { func tabEntrance(_ key: String) -> some View { modifier(TabEntrance(key: key)) } }
+
+/// Status feedback that passes by on its own (HIG › Feedback: alerts are for critical, actionable information).
+/// Stays about 5 seconds, can be tapped away, and is announced to VoiceOver.
+private struct NoticeBanner: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        ZStack {
+            if let notice = model.notice {
+                Button { model.notice = nil } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "info.circle.fill").foregroundStyle(Brand.gold)
+                        Text(notice).font(.subheadline).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .foregroundStyle(.white)
+                    .background(Brand.deepPurple, in: RoundedRectangle(cornerRadius: 18))
+                    .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+                    .padding(.horizontal, 16).padding(.top, 8)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Tik om te sluiten")
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
+                .task(id: notice) {
+                    UIAccessibility.post(notification: .announcement, argument: notice)
+                    try? await Task.sleep(for: .seconds(5))
+                    if model.notice == notice { model.notice = nil }
+                }
+            }
+        }
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : .smooth, value: model.notice)
+    }
+}

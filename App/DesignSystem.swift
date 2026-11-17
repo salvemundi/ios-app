@@ -7,11 +7,19 @@ extension Color {
     init(hex: UInt32) { self.init(.sRGB, red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255, opacity: 1) }
 }
 
+/// Colours from the Salve Mundi brand guide (2.3 Kleuren). Text and icons never use the fills directly in Dark Mode:
+/// `accent` has a lighter variant, derived from "licht paars", that keeps 7:1 on the dark card.
 enum Brand {
-    static let purple = Color(hex: 0x65406F)
-    static let deepPurple = Color(hex: 0x33213D)
-    static let gold = Color(hex: 0xF4D466)
-    static let background = Color(uiColor: .systemGroupedBackground)
+    /// Donker paars #5A3761 – fill colour (buttons, gradients, cards). White on it: 9.8:1.
+    static let purple = Color(hex: 0x5A3761)
+    /// Purple for text, icons and tints on the page background: donker paars in light, a lighter tint of licht paars (#936695) in dark.
+    static let accent = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.753, green: 0.627, blue: 0.769, alpha: 1) : UIColor(red: 0.353, green: 0.216, blue: 0.380, alpha: 1) })
+    /// Donker blauw #132A40 – secondary: second stop of gradients and text on yellow (9.8:1).
+    static let deepPurple = Color(hex: 0x132A40)
+    /// Geel #F8CF45 – a fill or text on dark purple/blue only. Never text on a light background (about 1.5:1).
+    static let gold = Color(hex: 0xF8CF45)
+    /// Wit paars #F0F1F9 in light mode; the system grouped background in dark mode.
+    static let background = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .systemGroupedBackground : UIColor(red: 0.941, green: 0.945, blue: 0.976, alpha: 1) })
     static let card = Color(uiColor: .secondarySystemGroupedBackground)
     /// Status text colours that keep enough contrast on light backgrounds (system green/orange are too light there).
     static let success = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .systemGreen : UIColor(red: 0.07, green: 0.40, blue: 0.19, alpha: 1) })
@@ -42,7 +50,7 @@ struct EmptyState: View {
     let message: String
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: icon).font(.system(size: 40, weight: .light)).foregroundStyle(Brand.purple)
+            Image(systemName: icon).font(.system(size: 40, weight: .light)).foregroundStyle(Brand.accent)
             Text(title).font(.title3.bold())
             Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
@@ -69,7 +77,7 @@ struct ActivityCard: View {
                     LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
                 } else {
                     Image(systemName: activity.kind == "pub_crawl" ? "sparkles" : "calendar")
-                        .font(.system(size: 85, weight: .ultraLight)).rotationEffect(.degrees(-12))
+                        .font(.system(size: 56, weight: .ultraLight)).rotationEffect(.degrees(-12))
                         .foregroundStyle(.white.opacity(0.12)).frame(maxWidth: .infinity, alignment: .trailing).padding(20)
                 }
                 HStack {
@@ -78,7 +86,7 @@ struct ActivityCard: View {
                     Text(activity.price).font(.caption.bold()).padding(.horizontal, 12).padding(.vertical, 8).background(Brand.gold, in: Capsule()).foregroundStyle(Brand.deepPurple)
                 }.padding(16)
             }
-            .frame(height: featured ? 185 : 145).clipped()
+            .frame(height: activity.imageURL == nil ? 88 : (featured ? 185 : 145)).clipped()
             .saturation(activity.isPast() ? 0 : 1)
             VStack(alignment: .leading, spacing: 10) {
                 if let ticket = registrationTicket {
@@ -92,7 +100,7 @@ struct ActivityCard: View {
                     if let date = activity.startsAt { Label(date.formatted(.dateTime.hour().minute()), systemImage: "clock") }
                     if let location = activity.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").lineLimit(2).fixedSize(horizontal: false, vertical: true) }
                 }.font(.caption).foregroundStyle(.secondary)
-                if activity.membersOnly { Label("Voor leden", systemImage: "person.crop.circle.badge.checkmark").font(.caption.weight(.medium)).foregroundStyle(Brand.purple) }
+                if activity.membersOnly { Label("Voor leden", systemImage: "person.crop.circle.badge.checkmark").font(.caption.weight(.medium)).foregroundStyle(Brand.accent) }
             }.padding(18).frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Brand.card, in: RoundedRectangle(cornerRadius: 24))
@@ -293,5 +301,31 @@ private final class ActivityVideoSurface: UIView {
         pending[url] = nil
         if let result { cache.setObject(result, forKey: url as NSURL, cost: result.cost) }
         return result
+    }
+}
+
+// MARK: - Search placement (HIG › Search fields)
+
+/// Search at the bottom, within thumb reach, as a field or button that opens above the keyboard (iOS 26+). Only for screens WITHOUT a tab bar
+/// (for example sheets): under the floating tab bar the field is hidden, so lists in tabs use `inlineSearch` instead.
+/// Earlier iOS versions keep the field always visible under the title instead of hidden behind a pull-down.
+private struct BottomSearch: ViewModifier {
+    @Binding var text: String
+    let prompt: LocalizedStringKey
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+                .searchable(text: $text, prompt: prompt)
+                .toolbar { DefaultToolbarItem(kind: .search, placement: .bottomBar) }
+        } else {
+            content.searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
+        }
+    }
+}
+extension View {
+    func bottomSearch(text: Binding<String>, prompt: LocalizedStringKey) -> some View { modifier(BottomSearch(text: text, prompt: prompt)) }
+    /// Filter field next to the list it filters: always visible above the list.
+    func inlineSearch(text: Binding<String>, prompt: LocalizedStringKey) -> some View {
+        searchable(text: text, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
     }
 }

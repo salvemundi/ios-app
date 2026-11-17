@@ -75,7 +75,7 @@ private struct UpcomingWidgetView: View {
     private var events: [WidgetEvent] { entry.snapshot.events.filter { ($0.startsAt ?? .distantFuture) > entry.date } }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack { Text("SALVE MUNDI").font(.caption2.bold()).tracking(1); Spacer(); Image(systemName: "calendar") }.foregroundStyle(Color(red: 0.95, green: 0.83, blue: 0.4))
+            HStack { Text("SALVE MUNDI").font(.caption2.bold()).tracking(1); Spacer(); Image(systemName: "calendar") }.foregroundStyle(Color(red: 0.973, green: 0.812, blue: 0.271)).widgetAccentable()
             if events.isEmpty {
                 Spacer(); Text("Binnenkort meer").font(.headline); Text("Open de app voor de agenda.").font(.caption).opacity(0.8); Spacer()
             } else {
@@ -95,7 +95,7 @@ private struct UpcomingWidgetView: View {
             if entry.date.timeIntervalSince(entry.snapshot.updatedAt) > 86400 { Text("Open de app om bij te werken").font(.caption2).opacity(0.65) }
         }
         .foregroundStyle(.white)
-        .containerBackground(Color(red: 0.20, green: 0.13, blue: 0.24), for: .widget)
+        .containerBackground(Color(red: 0.353, green: 0.216, blue: 0.380), for: .widget)
         .widgetURL(events.isEmpty ? URL(string: "salvemundi://activities") : events[WidgetPaging.index(entry.page, count: events.count)].deepLink)
     }
 }
@@ -105,7 +105,7 @@ private struct NextBookingWidgetView: View {
     private var booking: WidgetEvent? { guard entry.date.timeIntervalSince(entry.snapshot.updatedAt) < 86400, let event = entry.snapshot.nextBooking, (event.startsAt ?? .distantFuture) > entry.date else { return nil }; return event }
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("JIJ BENT ERBIJ", systemImage: "ticket.fill").font(.caption2.bold()).foregroundStyle(Color(red: 0.95, green: 0.83, blue: 0.4))
+            Label("JIJ BENT ERBIJ", systemImage: "ticket.fill").font(.caption2.bold()).foregroundStyle(Color(red: 0.973, green: 0.812, blue: 0.271)).widgetAccentable()
             Spacer(minLength: 0)
             if let booking {
                 Text(booking.title).font(.headline).lineLimit(2).privacySensitive()
@@ -118,7 +118,7 @@ private struct NextBookingWidgetView: View {
             Spacer(minLength: 0)
         }
         .foregroundStyle(.white)
-        .containerBackground(Color(red: 0.40, green: 0.25, blue: 0.44), for: .widget)
+        .containerBackground(Color(red: 0.075, green: 0.165, blue: 0.251), for: .widget)
         .widgetURL(URL(string: "salvemundi://tickets"))
     }
 }
@@ -190,7 +190,7 @@ private struct AdminCountsView: View {
                 Label("AANMELDINGEN", systemImage: "person.2.fill").font(.caption2.bold())
                 Spacer(minLength: 0)
                 Image(systemName: "lock.fill").font(.caption2)
-            }.foregroundStyle(Color(red: 0.95, green: 0.83, blue: 0.4))
+            }.foregroundStyle(Color(red: 0.973, green: 0.812, blue: 0.271)).widgetAccentable()
             if let summary, !summary.items.isEmpty {
                 let perPage = family == .systemMedium ? 2 : 1
                 let start = WidgetPaging.index(entry.page, count: summary.items.count)
@@ -203,7 +203,7 @@ private struct AdminCountsView: View {
                             if let date = activity.startsAt { Text(date.formatted(.dateTime.day().month(.abbreviated))).font(.caption2).opacity(0.8) }
                             Spacer(minLength: 0)
                             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                Text(activity.capacity.map { "\(activity.confirmedCount)/\($0)" } ?? "\(activity.confirmedCount)").font(.title.bold().monospacedDigit()).minimumScaleFactor(0.7).lineLimit(1)
+                                Text(activity.capacity.map { "\(activity.confirmedCount)/\($0)" } ?? "\(activity.confirmedCount)").font(.title.bold().monospacedDigit()).minimumScaleFactor(0.7).widgetAccentable().lineLimit(1)
                                 Text("bevestigd").font(.caption2).opacity(0.8)
                             }
                             Text(activity.pendingCount > 0 ? "\(activity.checkedInCount) ingecheckt · \(activity.pendingCount) open" : "\(activity.checkedInCount) ingecheckt").font(.caption2).opacity(0.8).lineLimit(1).minimumScaleFactor(0.8)
@@ -217,7 +217,7 @@ private struct AdminCountsView: View {
                             }
                             Spacer(minLength: 0)
                             VStack(alignment: .trailing, spacing: 2) {
-                                Text(activity.capacity.map { "\(activity.confirmedCount)/\($0)" } ?? "\(activity.confirmedCount)").font(.headline.monospacedDigit())
+                                Text(activity.capacity.map { "\(activity.confirmedCount)/\($0)" } ?? "\(activity.confirmedCount)").font(.headline.monospacedDigit()).widgetAccentable()
                                 Text("bevestigd").font(.caption2).opacity(0.8)
                             }
                         }.privacySensitive()
@@ -237,7 +237,7 @@ private struct AdminCountsView: View {
             }
         }
         .foregroundStyle(.white)
-        .containerBackground(Color(red: 0.20, green: 0.13, blue: 0.24), for: .widget)
+        .containerBackground(Color(red: 0.353, green: 0.216, blue: 0.380), for: .widget)
         .widgetURL(family == .systemSmall && summary != nil && !(summary?.items.isEmpty ?? true) ? summary?.items[WidgetPaging.index(entry.page, count: summary?.items.count ?? 0)].deepLink : URL(string: "salvemundi://admin/activities"))
     }
 }
@@ -276,7 +276,7 @@ private struct SalveEventLiveActivity: Widget {
                     if let location = context.state.event.location, !location.isEmpty { Label(location, systemImage: "mappin.and.ellipse").lineLimit(1) }
                     if let url = context.state.event.deepLink { Link("Open mijn ticket", destination: url).font(.subheadline.bold()).foregroundStyle(.yellow) }
                 }
-            }.padding(16).activityBackgroundTint(Color(red: 0.20, green: 0.13, blue: 0.24)).activitySystemActionForegroundColor(.white).foregroundStyle(.white)
+            }.padding(16).activityBackgroundTint(Color(red: 0.353, green: 0.216, blue: 0.380)).activitySystemActionForegroundColor(.white).foregroundStyle(.white)
             .widgetURL(context.state.event.deepLink)
         } dynamicIsland: { context in
             DynamicIsland {
